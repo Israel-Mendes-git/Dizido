@@ -1,0 +1,129 @@
+# Integração contínua do Dizido.
+#
+# A regra que este arquivo existe para impor: nada entra na main sem compilar sem avisos e sem
+# passar em todos os testes. Rodar isso na máquina de quem programa é fácil de esquecer; aqui
+# não tem como.
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  # Permite disparar à mão pela aba Actions, útil para conferir o pipeline sem inventar commit.
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  # A telemetria da Microsoft não tem o que fazer numa máquina efêmera de CI.
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-e-testes:
+    runs-on: ubuntu-latest
+
+    # Os testes de integração sobem Postgres, Redis e MinIO por Testcontainers, que precisa de
+    # um Docker acessível. O runner do GitHub já tem — por isso não há nenhum `services:` aqui.
+    # Declarar os contêineres como services do workflow seria duplicar o que a suíte já faz, e
+    # aí os testes rodariam contra um banco diferente do que rodam na máquina de quem programa.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar o .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Lê a versão do global.json quando existir; sem ele, esta linha é a fonte da verdade.
+          dotnet-version: '10.0.x'
+
+      # O cache do NuGet é a diferença entre um pipeline de 40 segundos e um de 3 minutos.
+      # A chave inclui o hash dos .csproj: mudou dependência, baixa de novo; não mudou, reusa.
+      - name: Cache dos pacotes NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restaurar
+        run: dotnet restore
+
+      # TreatWarningsAsErrors já está ligado no Directory.Build.props, então "compilar" e
+      # "passar na análise estática" são a mesma etapa. --no-restore garante que estamos
+      # usando o que o passo anterior baixou.
+      - name: Compilar (avisos são erros)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Testes
+        run: dotnet test --configuration Release --no-build --logger "trx;LogFileName=testes.trx"
+
+      # Sobe o resultado mesmo quando a etapa anterior falha: é justamente no vermelho que
+      # alguém precisa abrir o relatório para saber qual teste quebrou.
+      - name: Guardar o resultado dos testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultado-dos-testes
+          path: '**/*.trx'
+          if-no-files-found: ignore
+
+  # Confere que a migration mais recente descreve o modelo atual. É o erro que passa
+  # despercebido com mais facilidade: alguém mexe numa entidade, esquece de gerar a migration,
+  # tudo funciona na máquina dele (o banco local já tem a coluna) e quebra no deploy.
+  migrations-em-dia:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restaurar as ferramentas locais
+        run: dotnet tool restore
+
+      - name: O modelo divergiu das migrations?
+        run: >
+          dotnet dotnet-ef migrations has-pending-model-changes
+          --project src/Dizido.Infrastructure
+          --startup-project src/Dizido.Api
+
+  # A imagem só é construída depois que os testes passam. Publicar antes seria oferecer para
+  # deploy algo que ninguém verificou.
+  imagem:
+    needs: [build-e-testes, migrations-em-dia]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Necessária para o GITHUB_TOKEN conseguir escrever no registro de pacotes do GitHub.
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Em pull request a imagem é construída mas não publicada: o objetivo ali é descobrir se
+      # o Dockerfile ainda funciona, e o repositório não deve acumular imagem de cada proposta.
+      - name: Entrar no registro
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir e publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          # O cache de camadas do buildx transforma um build de dois minutos em um de vinte
+          # segundos quando só o código mudou.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

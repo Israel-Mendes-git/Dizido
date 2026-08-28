@@ -1,0 +1,10 @@
+{
+  "sdk": {
+    "version": "10.0.400",
+
+    "//": "latestFeature aceita 10.0.4xx mais novo, mas nunca 10.1 ou 11. Sem este arquivo,",
+    "///": "a máquina de quem programa e a CI podem usar SDKs diferentes — e a diferença só",
+    "////": "aparece quando um analisador novo reprova código que passava, ou o contrário.",
+    "rollForward": "latestFeature"
+  }
+}

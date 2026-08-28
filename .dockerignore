@@ -1,0 +1,24 @@
+# O que NÃO entra no contexto enviado ao Docker.
+#
+# Sem isto, o `docker build` empacota e transfere a pasta inteira — incluindo bin/, obj/ e o
+# histórico do git. Além de lento, é perigoso: qualquer coisa no contexto pode acabar copiada
+# para dentro da imagem por um COPY descuidado, e binários compilados no Windows dentro de
+# obj/ confundem o build feito no Linux.
+
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+.git/
+.github/
+**/*.user
+**/node_modules/
+
+# Documentação e scripts não fazem parte da imagem.
+*.md
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# Os testes não vão para a imagem de produção.
+tests/
