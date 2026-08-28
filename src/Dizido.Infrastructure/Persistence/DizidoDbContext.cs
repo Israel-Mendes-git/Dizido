@@ -35,6 +35,8 @@ public sealed class DizidoDbContext(DbContextOptions<DizidoDbContext> options)
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<Attachment> Attachments => Set<Attachment>();
+
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)

@@ -53,11 +53,20 @@ internal sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
             .IsUnique()
             .HasDatabaseName("ux_messages_dedup");
 
+        // Restrict, e não SetNull: um anexo referenciado por mensagem não pode ser removido.
+        // Com SetNull, apagar a linha do anexo esvaziaria a mensagem em silêncio, e o balão
+        // ficaria vazio no histórico de todo mundo. A faxina só mexe em anexos sem mensagem.
+        builder.HasOne<Attachment>()
+            .WithMany()
+            .HasForeignKey(m => m.AttachmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.Property(m => m.Kind).HasConversion<int>().IsRequired();
         builder.Property(m => m.SystemEvent).HasConversion<int?>();
 
         builder.Ignore(m => m.IsDeleted);
         builder.Ignore(m => m.IsEdited);
         builder.Ignore(m => m.IsSystem);
+        builder.Ignore(m => m.HasAttachment);
     }
 }
