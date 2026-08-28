@@ -2,6 +2,7 @@ using Dizido.Api;
 using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
 using Dizido.Api.Endpoints;
+using Dizido.Api.Health;
 using Dizido.Infrastructure;
 using Dizido.Infrastructure.Identity;
 using Dizido.Api.Realtime;
@@ -176,6 +177,22 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .AllowCredentials()));
 
 // ---------------------------------------------------------------------------
+// Saúde
+// ---------------------------------------------------------------------------
+
+// A tag separa o que o /health/ready confere do que o /health ignora. Sem ela, os dois
+// endpoints rodariam as mesmas checagens e a distinção entre "reinicie" e "tire do balanceador"
+// se perderia. Ver HealthEndpoints para o porquê de a diferença importar.
+string[] prontidao = [HealthEndpoints.TagDeProntidao];
+
+builder.Services.AddHealthChecks()
+    // CanConnectAsync, e não uma consulta de verdade: o que se quer saber é se a conexão
+    // sobe. Consultar uma tabela transformaria o health check em carga no banco.
+    .AddDbContextCheck<DizidoDbContext>("postgres", tags: prontidao)
+    .AddCheck<RedisHealthCheck>("redis", tags: prontidao)
+    .AddCheck<StorageHealthCheck>("storage", tags: prontidao);
+
+// ---------------------------------------------------------------------------
 
 // ProblemDetails (RFC 9457) como formato padrão de erro em toda a API.
 builder.Services.AddProblemDetails();
@@ -219,6 +236,10 @@ app.UseAuthorization();
 app.MapGet("/", () => Results.Ok(new { service = "Dizido.Api", status = "ok" }))
    .ExcludeFromDescription()
    .AllowAnonymous();
+
+// Anônimos de propósito: o orquestrador consulta antes de haver qualquer sessão, e ele não
+// tem como se autenticar. É por isso que a resposta não carrega stack trace.
+app.MapHealthEndpoints();
 
 app.MapAuthEndpoints().RequireRateLimiting("auth");
 

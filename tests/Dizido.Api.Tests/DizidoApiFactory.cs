@@ -1,42 +1,45 @@
 using System.Net.Http.Headers;
 using Dizido.Api.Auth;
-using Dizido.Api.Realtime;
 using Dizido.Domain.Entities;
 using Dizido.Infrastructure.Identity;
 using Dizido.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
+using Testcontainers.Redis;
 
 namespace Dizido.Api.Tests;
 
 /// <summary>
-/// Sobe a API inteira em memória, ligada a um PostgreSQL de verdade rodando em contêiner.
+/// Sobe a API inteira em memória, ligada a um PostgreSQL, um Redis e um MinIO de verdade,
+/// todos em contêineres descartáveis.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Por que um banco real e não um falso.</b> Trocar o provedor por InMemory ou SQLite testaria
-/// outro banco: a paginação por cursor usa SQL cru, o índice único de deduplicação é do Postgres,
-/// e <c>DateTimeOffset</c> tem tradução própria no Npgsql. Um teste que passa contra um provedor
-/// diferente do de produção dá a sensação de cobertura sem a garantia.
+/// <b>Nada é substituído.</b> Não há um único serviço trocado por versão de teste: o que roda é
+/// o <c>Program.cs</c> de produção, com os mesmos endpoints, o mesmo pipeline de autenticação e
+/// as mesmas dependências. Se um teste passa aqui, passou contra o sistema, não contra uma
+/// maquete dele.
 /// </para>
 /// <para>
-/// O contêiner é descartável e ganha porta aleatória, então não conflita com o Postgres do
-/// <c>docker-compose.yml</c> nem deixa sujeira entre execuções. A imagem é a mesma do compose
-/// de propósito — testar contra outra versão do banco enfraquece o teste.
+/// <b>Por que dependências reais e não falsas.</b> Trocar o provedor por InMemory ou SQLite
+/// testaria outro banco: a paginação por cursor usa SQL cru, o índice único de deduplicação é do
+/// Postgres, e <c>DateTimeOffset</c> tem tradução própria no Npgsql. No storage é a mesma coisa —
+/// um falso em memória diria "sim" para a URL assinada sem provar que ela vale.
 /// </para>
 /// <para>
-/// <b>O que é substituído.</b> Só o que exigiria Redis: a presença e o backplane do SignalR.
-/// Tudo o mais é o código de produção — o mesmo <c>Program.cs</c>, os mesmos endpoints, o mesmo
-/// pipeline de autenticação.
+/// As imagens são as mesmas do <c>docker-compose.yml</c> de propósito, e os contêineres ganham
+/// porta aleatória: não conflitam com o ambiente de desenvolvimento nem deixam sujeira entre
+/// execuções.
+/// </para>
+/// <para>
+/// O preço é depender do Docker para rodar <c>dotnet test</c>. Os testes de domínio continuam
+/// rodando sozinhos, em milissegundos, e são onde mora a maior parte das regras.
 /// </para>
 /// </remarks>
 public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
@@ -51,6 +54,12 @@ public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLif
     // storage falso em memória responderia "sim" para tudo isso sem provar nada.
     private readonly MinioContainer _minio = new MinioBuilder("minio/minio:latest").Build();
 
+    // O terceiro contêiner entrou na Fase 8 e pagou o próprio custo: com ele, a suíte deixou
+    // de substituir a presença e o backplane do SignalR por versões de mentira. O que roda
+    // agora é o Program.cs inteiro, sem um único serviço trocado — e é isso que faz o
+    // /health/ready ser testável de verdade, com as três dependências no ar.
+    private readonly RedisContainer _redis = new RedisBuilder("redis:7-alpine").Build();
+
     /// <summary>Um usuário de teste já criado no banco, com um token de acesso válido.</summary>
     public sealed record Usuario(Guid Id, string Nome, string Token);
 
@@ -64,39 +73,20 @@ public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLif
             new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Dizido"] = _postgres.GetConnectionString(),
-
-                // O Program.cs exige a chave presente, mas nada aqui conecta ao Redis:
-                // o IConnectionMultiplexer é removido logo abaixo.
-                ["ConnectionStrings:Redis"] = "localhost:6379",
+                ["ConnectionStrings:Redis"] = _redis.GetConnectionString(),
 
                 ["Storage:Endpoint"] = $"http://{_minio.Hostname}:{_minio.GetMappedPublicPort(9000)}",
                 ["Storage:AccessKey"] = _minio.GetAccessKey(),
                 ["Storage:SecretKey"] = _minio.GetSecretKey(),
                 ["Storage:Bucket"] = "dizido-testes",
             }));
-
-        builder.ConfigureTestServices(services =>
-        {
-            services.RemoveAll<IPresenceTracker>();
-            services.AddSingleton<IPresenceTracker, PresencaEmMemoria>();
-
-            // O SignalR passa a usar o gerenciador em memória, o padrão de quando não há
-            // backplane. Sem esta troca, o primeiro endpoint que resolvesse IHubContext
-            // tentaria abrir conexão com o Redis e o teste travaria até estourar o tempo.
-            services.AddSingleton(typeof(HubLifetimeManager<>), typeof(DefaultHubLifetimeManager<>));
-
-            // Removido, e não substituído por um falso, de propósito: se algum código novo
-            // passar a depender do Redis, o teste falha dizendo exatamente isso, em vez de
-            // ficar pendurado tentando conectar.
-            services.RemoveAll<StackExchange.Redis.IConnectionMultiplexer>();
-        });
     }
 
     public async Task InitializeAsync()
     {
-        // Os dois contêineres em paralelo: são independentes, e esperar um depois do outro
-        // dobraria o tempo de arranque da suíte inteira.
-        await Task.WhenAll(_postgres.StartAsync(), _minio.StartAsync());
+        // Os três em paralelo: são independentes, e esperar um depois do outro triplicaria o
+        // tempo de arranque da suíte.
+        await Task.WhenAll(_postgres.StartAsync(), _minio.StartAsync(), _redis.StartAsync());
 
         // Migrations, e não EnsureCreated: assim o esquema testado é exatamente o que o deploy
         // vai aplicar. EnsureCreated monta as tabelas a partir do modelo e passaria por cima de
@@ -176,6 +166,7 @@ public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLif
         await base.DisposeAsync();
         await _postgres.DisposeAsync();
         await _minio.DisposeAsync();
+        await _redis.DisposeAsync();
     }
 }
 
