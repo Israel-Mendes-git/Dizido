@@ -1,5 +1,18 @@
 @implements IDisposable
 
+@if (RespondendoA is { } citada)
+{
+    <div class="dz-composer__resposta">
+        <span class="dz-composer__resposta-rotulo">respondendo a</span>
+        <span class="dz-citacao__autor">@citada.SenderDisplayName</span>
+        <span class="dz-citacao__trecho">@citada.Excerpt</span>
+
+        <button type="button" class="dz-composer__anexo-tirar"
+                title="Cancelar resposta" aria-label="Cancelar resposta"
+                @onclick="AoCancelarResposta">✕</button>
+    </div>
+}
+
 @if (_arquivo is not null)
 {
     <div class="dz-composer__anexo">
@@ -69,6 +82,16 @@
     [Parameter] public Func<ArquivoEscolhido, Task<string?>>? AoEnviarArquivo { get; set; }
 
     [Parameter] public EventCallback<bool> AoDigitar { get; set; }
+
+    /// <summary>A mensagem que está sendo respondida, se houver.</summary>
+    /// <remarks>
+    /// Vem de fora, e não de um estado interno, porque quem escolhe é o balão lá em cima —
+    /// e é o <c>ChatShell</c> que faz a ponte entre os dois. Guardar aqui obrigaria o
+    /// compositor a conhecer a lista de mensagens.
+    /// </remarks>
+    [Parameter] public MessageReplyPreview? RespondendoA { get; set; }
+
+    [Parameter] public EventCallback AoCancelarResposta { get; set; }
 
     /// <summary>O que o usuário escolheu, pronto para subir.</summary>
     public sealed record ArquivoEscolhido(string Nome, string ContentType, long Tamanho, Stream Conteudo, string Legenda);

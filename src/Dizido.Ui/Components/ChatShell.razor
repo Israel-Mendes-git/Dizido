@@ -70,7 +70,8 @@ else
                                AoExpirarAnexo="RenovarAnexo"
                                PodeModerar="EuModeroAConversaAtiva"
                                AoEditar="EditarMensagem"
-                               AoApagar="ApagarMensagem">
+                               AoApagar="ApagarMensagem"
+                               AoResponder="ComecarResposta">
                     <Acoes>
                         @if (ConversaAtivaEhGrupo)
                         {
@@ -86,6 +87,8 @@ else
                    rede voltar, mesmo que o usuário feche o navegador antes disso. *@
                 <MessageComposer AoEnviar="Enviar"
                                  AoEnviarArquivo="EnviarArquivo"
+                                 RespondendoA="_respondendoA"
+                                 AoCancelarResposta="() => _respondendoA = null"
                                  AoDigitar="d => Conexao.SetTypingAsync(ativa, d)" />
 
                 @if (_painelGrupo && ConversaAtivaObj is { } grupo && ConversaAtivaEhGrupo)
@@ -144,6 +147,13 @@ else
     private string _tituloGrupo = string.Empty;
     private IReadOnlyList<UserResponse> _usuarios = [];
     private HubConnectionState _estadoConexao = HubConnectionState.Disconnected;
+
+    /// <summary>A mensagem que o próximo envio vai responder.</summary>
+    /// <remarks>
+    /// Mora aqui, e não no compositor, porque quem escolhe é um balão lá em cima. O ChatShell
+    /// é o ponto onde as duas metades da tela se enxergam.
+    /// </remarks>
+    private MessageReplyPreview? _respondendoA;
 
     protected override async Task OnInitializedAsync()
     {
@@ -279,8 +289,30 @@ else
     {
         if (Store.ConversaAtiva is { } ativa)
         {
-            await Store.EnviarAsync(ativa, texto);
+            await Store.EnviarAsync(ativa, texto, respondendoA: _respondendoA);
+            _respondendoA = null;
         }
+    }
+
+    /// <summary>
+    /// Monta a citação a partir da mensagem escolhida, sem ir ao servidor.
+    /// </summary>
+    /// <remarks>
+    /// Todos os dados necessários já estão na tela — quem clicou em "responder" estava olhando
+    /// para a mensagem. O servidor recebe só o id e refaz a citação por conta própria ao
+    /// devolver a resposta, então não há risco de o cliente forjar o que aparece para os outros.
+    /// </remarks>
+    private void ComecarResposta(MensagemNaTela mensagem)
+    {
+        var corpo = mensagem.Dados.Body.Trim();
+
+        _respondendoA = new MessageReplyPreview(
+            mensagem.Dados.Id,
+            mensagem.Dados.SenderDisplayName,
+            corpo.Length > 0
+                ? (corpo.Length <= 90 ? corpo : corpo[..90] + "…")
+                : (mensagem.Dados.Attachment is not null ? "arquivo" : string.Empty),
+            IsDeleted: false);
     }
 
     /// <summary>
@@ -307,8 +339,16 @@ else
             return "Nenhuma conversa aberta.";
         }
 
-        return await Store.EnviarArquivoAsync(
-            ativa, arquivo.Legenda, arquivo.Nome, arquivo.ContentType, arquivo.Conteudo, arquivo.Tamanho);
+        var erro = await Store.EnviarArquivoAsync(
+            ativa, arquivo.Legenda, arquivo.Nome, arquivo.ContentType, arquivo.Conteudo,
+            arquivo.Tamanho, _respondendoA);
+
+        if (erro is null)
+        {
+            _respondendoA = null;
+        }
+
+        return erro;
     }
 
     /// <summary>

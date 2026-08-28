@@ -48,6 +48,16 @@
         }
         else
         {
+            @* A citação vem pronta do servidor: a mensagem original pode estar centenas de
+               páginas atrás, fora de tudo que o cliente carregou. *@
+            @if (Mensagem.Dados.ReplyTo is { } citada)
+            {
+                <div class="dz-citacao @(citada.IsDeleted ? "dz-citacao--apagada" : null)">
+                    <span class="dz-citacao__autor">@citada.SenderDisplayName</span>
+                    <span class="dz-citacao__trecho">@citada.Excerpt</span>
+                </div>
+            }
+
             @if (Mensagem.Dados.Attachment is { } anexo)
             {
                 <AttachmentView Anexo="anexo" AoExpirar="AoExpirarAnexo" />
@@ -87,9 +97,16 @@
         @* As ações ficam escondidas até o ponteiro passar pelo balão (regra de CSS), mas
            continuam no DOM e alcançáveis por teclado — o contrário excluiria quem não usa
            mouse de editar as próprias mensagens. *@
-        @if (PodeEditar || PodeApagar)
+        @if (PodeResponder || PodeEditar || PodeApagar)
         {
             <div class="dz-bubble__acoes">
+                @if (PodeResponder)
+                {
+                    <button type="button" class="dz-bubble__acao"
+                            title="Responder" aria-label="Responder a esta mensagem"
+                            @onclick="Responder">responder</button>
+                }
+
                 @if (PodeEditar)
                 {
                     <button type="button" class="dz-bubble__acao"
@@ -139,6 +156,22 @@
     /// <summary>Apaga a mensagem. Devolve a mensagem de erro, ou <c>null</c>.</summary>
     [Parameter] public Func<MensagemNaTela, Task<string?>>? AoApagar { get; set; }
 
+    /// <summary>Põe esta mensagem como a que o compositor vai responder.</summary>
+    [Parameter] public EventCallback<MensagemNaTela> AoResponder { get; set; }
+
+    /// <summary>
+    /// Responder vale para mensagem de qualquer pessoa, inclusive a própria.
+    /// </summary>
+    /// <remarks>
+    /// Não se responde a uma mensagem ainda na fila: ela não tem id no servidor, e a citação
+    /// apontaria para o nada quando finalmente saísse.
+    /// </remarks>
+    private bool PodeResponder =>
+        AoResponder.HasDelegate
+        && !Mensagem.Dados.IsDeleted
+        && !Mensagem.EhProvisoria
+        && !_editando;
+
     /// <summary>
     /// Só o autor edita, e só o que já foi gravado.
     /// </summary>
@@ -181,6 +214,8 @@
     };
 
     private Task Reenviar() => AoReenviar.InvokeAsync(Mensagem);
+
+    private Task Responder() => AoResponder.InvokeAsync(Mensagem);
 
     private void Editar()
     {

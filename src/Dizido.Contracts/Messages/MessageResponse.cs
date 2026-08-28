@@ -37,4 +37,23 @@ public sealed record MessageResponse(
     /// aqui dentro têm prazo — ao expirar, o cliente pede um anexo novo em
     /// <c>GET /api/attachments/{id}</c>.
     /// </remarks>
-    Attachments.AttachmentResponse? Attachment = null);
+    Attachments.AttachmentResponse? Attachment = null,
+
+    /// <summary>Um resumo da mensagem que esta responde.</summary>
+    /// <remarks>
+    /// O <c>ReplyToMessageId</c> sozinho não basta para desenhar a citação: a mensagem citada
+    /// pode estar centenas de páginas atrás no histórico, fora de tudo que o cliente carregou.
+    /// Buscá-la sob demanda seria uma ida à rede por balão. O servidor manda o pedaço pronto.
+    /// </remarks>
+    MessageReplyPreview? ReplyTo = null);
+
+/// <summary>O suficiente para desenhar a citação acima de uma resposta.</summary>
+/// <param name="Excerpt">
+/// Um trecho curto do original. Para mensagem com anexo e sem legenda, uma descrição do tipo
+/// de arquivo — a citação precisa dizer alguma coisa.
+/// </param>
+public sealed record MessageReplyPreview(
+    Guid MessageId,
+    string SenderDisplayName,
+    string Excerpt,
+    bool IsDeleted);

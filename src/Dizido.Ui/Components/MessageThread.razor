@@ -65,7 +65,8 @@
                            AoExpirarAnexo="AoExpirarAnexo"
                            PodeModerar="PodeModerar"
                            AoEditar="AoEditar"
-                           AoApagar="AoApagar" />
+                           AoApagar="AoApagar"
+                           AoResponder="AoResponder" />
         }
     </div>
 
@@ -117,6 +118,9 @@
     [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoEditar { get; set; }
 
     [Parameter] public Func<MensagemNaTela, Task<string?>>? AoApagar { get; set; }
+
+    /// <summary>O usuário escolheu responder a uma mensagem.</summary>
+    [Parameter] public EventCallback<MensagemNaTela> AoResponder { get; set; }
 
     private string TextoDigitando => Digitando.Count == 1
         ? $"{Digitando[0]} está digitando"

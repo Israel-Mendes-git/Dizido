@@ -234,17 +234,18 @@ public sealed class ChatStore(
         Guid conversationId,
         string texto,
         AttachmentResponse? anexo = null,
+        MessageReplyPreview? respondendoA = null,
         CancellationToken ct = default)
     {
         var clientMessageId = Guid.NewGuid();
         var agora = clock.GetUtcNow();
 
         Lista(conversationId).Add(new MensagemNaTela(
-            Provisoria(conversationId, texto, clientMessageId, agora, anexo),
+            Provisoria(conversationId, texto, clientMessageId, agora, anexo, respondendoA),
             EstadoEnvio.Enviando));
 
         await outbox.EnfileirarAsync(
-            new ItemDaFila(conversationId, clientMessageId, texto, agora, anexo?.Id));
+            new ItemDaFila(conversationId, clientMessageId, texto, agora, anexo?.Id, respondendoA?.MessageId));
 
         Changed?.Invoke();
         IniciarDrenagem();
@@ -266,6 +267,7 @@ public sealed class ChatStore(
         string contentType,
         Stream conteudo,
         long tamanho,
+        MessageReplyPreview? respondendoA = null,
         CancellationToken ct = default)
     {
         var (anexo, erro) = await api.UploadAsync(
@@ -276,7 +278,7 @@ public sealed class ChatStore(
             return erro ?? "Não foi possível enviar o arquivo.";
         }
 
-        await EnviarAsync(conversationId, texto, anexo, ct);
+        await EnviarAsync(conversationId, texto, anexo, respondendoA, ct);
 
         return null;
     }
@@ -414,7 +416,8 @@ public sealed class ChatStore(
 
                 var (mensagem, _) = await api.SendMessageAsync(
                     item.ConversationId,
-                        new SendMessageRequest(item.ClientMessageId, item.Body, AttachmentId: item.AttachmentId),
+                        new SendMessageRequest(
+                        item.ClientMessageId, item.Body, item.ReplyToMessageId, item.AttachmentId),
                     ct);
 
                 if (mensagem is not null)
@@ -731,7 +734,8 @@ public sealed class ChatStore(
         string texto,
         Guid clientMessageId,
         DateTimeOffset quando,
-        AttachmentResponse? anexo = null) =>
+        AttachmentResponse? anexo = null,
+        MessageReplyPreview? respondendoA = null) =>
         new(
             Id: Guid.CreateVersion7(quando),
             ConversationId: conversationId,
@@ -739,11 +743,12 @@ public sealed class ChatStore(
             SenderDisplayName: session.DisplayName ?? "eu",
             Body: texto,
             ClientMessageId: clientMessageId,
-            ReplyToMessageId: null,
+            ReplyToMessageId: respondendoA?.MessageId,
             SentAt: quando,
             EditedAt: null,
             IsDeleted: false,
-            Attachment: anexo);
+            Attachment: anexo,
+            ReplyTo: respondendoA);
 
     private void SemearPresenca(IEnumerable<ConversationMemberResponse> membros)
     {

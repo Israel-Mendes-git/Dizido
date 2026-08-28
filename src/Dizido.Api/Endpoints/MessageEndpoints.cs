@@ -236,9 +236,10 @@ internal static class MessageEndpoints
                 .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
 
             var anexos = await AnexosAsync(db, presenter, messages, ct);
+            var citacoes = await CitacoesAsync(db, messages, ct);
 
             var items = messages
-                .Select(m => ToResponse(m, names.GetValueOrDefault(m.SenderId, "(desconhecido)"), anexos))
+                .Select(m => ToResponse(m, names.GetValueOrDefault(m.SenderId, "(desconhecido)"), anexos, citacoes))
                 .ToList();
 
             return Results.Ok(new MessagePage(items, hasMore ? messages[^1].Id : null));
@@ -319,8 +320,9 @@ internal static class MessageEndpoints
             .FirstOrDefaultAsync(ct);
 
         var anexos = await AnexosAsync(db, presenter, [message], ct);
+        var citacoes = await CitacoesAsync(db, [message], ct);
 
-        return ToResponse(message, name ?? "(desconhecido)", anexos);
+        return ToResponse(message, name ?? "(desconhecido)", anexos, citacoes);
     }
 
     /// <summary>
@@ -356,10 +358,76 @@ internal static class MessageEndpoints
         return anexos.ToDictionary(a => a.Id, presenter.Present);
     }
 
+    /// <summary>
+    /// Monta as citações de um lote de mensagens: uma consulta para a página inteira.
+    /// </summary>
+    /// <remarks>
+    /// O mesmo cuidado com N+1 dos nomes e dos anexos. Cinquenta respostas numa conversa
+    /// movimentada virariam cinquenta idas ao banco só para desenhar as citações.
+    /// </remarks>
+    private static async Task<Dictionary<Guid, MessageReplyPreview>> CitacoesAsync(
+        DizidoDbContext db,
+        IReadOnlyList<Message> messages,
+        CancellationToken ct)
+    {
+        var ids = messages
+            .Where(m => m.ReplyToMessageId is not null)
+            .Select(m => m.ReplyToMessageId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var originais = await db.Messages
+            .AsNoTracking()
+            .Where(m => ids.Contains(m.Id))
+            .Select(m => new { m.Id, m.SenderId, m.Body, m.DeletedAt, m.AttachmentId })
+            .ToListAsync(ct);
+
+        var autores = await db.Profiles
+            .AsNoTracking()
+            .Where(u => originais.Select(o => o.SenderId).Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+
+        return originais.ToDictionary(
+            o => o.Id,
+            o => new MessageReplyPreview(
+                o.Id,
+                autores.GetValueOrDefault(o.SenderId, "(desconhecido)"),
+                Trecho(o.Body, o.DeletedAt is not null, o.AttachmentId is not null),
+                o.DeletedAt is not null));
+    }
+
+    /// <summary>Encurta o corpo para caber na citação.</summary>
+    private static string Trecho(string corpo, bool apagada, bool temAnexo)
+    {
+        if (apagada)
+        {
+            return "mensagem apagada";
+        }
+
+        var texto = corpo.Trim();
+
+        if (texto.Length == 0)
+        {
+            // Foto sem legenda. A citação precisa dizer alguma coisa, senão fica um retângulo
+            // vazio pendurado acima da resposta.
+            return temAnexo ? "arquivo" : string.Empty;
+        }
+
+        const int Limite = 90;
+
+        return texto.Length <= Limite ? texto : texto[..Limite] + "…";
+    }
+
     private static MessageResponse ToResponse(
         Message m,
         string senderDisplayName,
         Dictionary<Guid, AttachmentResponse> anexos,
+        Dictionary<Guid, MessageReplyPreview> citacoes,
         string? targetName = null) =>
         new(m.Id, m.ConversationId, m.SenderId, senderDisplayName, m.Body, m.ClientMessageId,
             m.ReplyToMessageId, m.SentAt, m.EditedAt, m.IsDeleted,
@@ -367,5 +435,7 @@ internal static class MessageEndpoints
 
             // Mensagem apagada não devolve anexo: o balão vira "esta mensagem foi apagada",
             // e a foto não tem por que continuar aparecendo.
-            m.AttachmentId is { } id && !m.IsDeleted ? anexos.GetValueOrDefault(id) : null);
+            m.AttachmentId is { } id && !m.IsDeleted ? anexos.GetValueOrDefault(id) : null,
+
+            m.ReplyToMessageId is { } original ? citacoes.GetValueOrDefault(original) : null);
 }

@@ -13,12 +13,18 @@ namespace Dizido.Client;
 /// Fase 5 — reenvio, backoff, sobreviver a fechar o navegador.
 /// </para>
 /// </param>
+/// <param name="ReplyToMessageId">
+/// A mensagem que esta responde. Vai na fila para que uma resposta escrita offline continue
+/// sendo uma resposta quando finalmente sair — sem isso, ela chegaria solta e fora de contexto
+/// horas depois.
+/// </param>
 public sealed record ItemDaFila(
     Guid ConversationId,
     Guid ClientMessageId,
     string Body,
     DateTimeOffset CriadaEm,
     Guid? AttachmentId = null,
+    Guid? ReplyToMessageId = null,
     int Tentativas = 0);
 
 /// <summary>Onde a fila de saída é guardada. Abstraído para o Domain do cliente não conhecer o navegador.</summary>

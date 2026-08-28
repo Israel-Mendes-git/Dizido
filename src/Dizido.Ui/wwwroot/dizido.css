@@ -306,6 +306,47 @@ button { font: inherit; cursor: pointer; }
     font-size: 12px;
 }
 
+/* ---------- citação ---------- */
+
+.dz-citacao {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    /* A barra à esquerda é o sinal universal de citação — o mesmo do email. */
+    border-left: 3px solid var(--dz-acento);
+    padding: 4px 8px;
+    margin-bottom: 6px;
+    background: rgba(0, 0, 0, .2);
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.dz-citacao--apagada { border-left-color: var(--dz-texto-fraco); font-style: italic; }
+
+.dz-citacao__autor { color: var(--dz-acento); font-weight: 600; }
+
+.dz-citacao__trecho {
+    color: var(--dz-texto-fraco);
+    /* Uma linha só: a citação é uma pista do contexto, não a mensagem inteira de novo. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dz-composer__resposta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    border-top: 1px solid var(--dz-borda);
+    background: var(--dz-painel);
+    font-size: 13px;
+}
+
+.dz-composer__resposta-rotulo { color: var(--dz-texto-fraco); }
+
+.dz-composer__resposta .dz-citacao__trecho { flex: 1; min-width: 0; }
+
 /* ---------- anexos ---------- */
 
 .dz-anexo-imagem {
