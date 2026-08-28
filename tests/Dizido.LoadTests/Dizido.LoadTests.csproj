@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      Não é projeto de teste: é um programa que se roda à mão contra um ambiente de verdade.
+      Sem esta linha o `dotnet test` tentaria executá-lo e reclamaria de não achar testes.
+    -->
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Referencia a API para reaproveitar o emissor de tokens e o UserManager na hora de semear
+      os usuários. O caminho alternativo — registrar tudo por HTTP — esbarraria no limite de
+      10 requisições por minuto do endpoint de registro, e a preparação de 200 usuários levaria
+      vinte minutos antes de a medição começar.
+    -->
+    <ProjectReference Include="..\..\src\Dizido.Api\Dizido.Api.csproj" />
+    <ProjectReference Include="..\..\src\Dizido.Client\Dizido.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>

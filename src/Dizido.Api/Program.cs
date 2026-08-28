@@ -56,22 +56,10 @@ if (jwtOptions.SigningKey.Length < 32)
         + "de ambiente Jwt__SigningKey — nunca reaproveite a chave de desenvolvimento.");
 }
 
+// A política mora em PoliticaDeSenha porque o teste de carga também cria contas, e ter as
+// regras em dois lugares as faria divergir.
 builder.Services
-    .AddIdentityCore<DizidoUser>(options =>
-    {
-        options.User.RequireUniqueEmail = true;
-
-        // Comprimento é o fator que mais importa numa senha. Exigir símbolo e maiúscula
-        // empurra as pessoas para "Senha123!" — previsível e curta. Um mínimo maior, sem
-        // exigências decorativas, resiste melhor a ataque de dicionário.
-        options.Password.RequiredLength = 10;
-        options.Password.RequireNonAlphanumeric = false;
-        options.Password.RequireUppercase = false;
-        options.Password.RequireDigit = false;
-
-        options.Lockout.MaxFailedAccessAttempts = 5;
-        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-    })
+    .AddIdentityCore<DizidoUser>(PoliticaDeSenha.Aplicar)
     .AddEntityFrameworkStores<DizidoDbContext>();
 
 builder.Services
