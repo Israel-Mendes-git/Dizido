@@ -1,0 +1,27 @@
+# Fim de linha.
+#
+# A configuração `core.autocrlf=true` desta máquina converte tudo para CRLF ao fazer checkout.
+# Para código C# isso é indiferente. Para arquivos que rodam DENTRO de um contêiner Linux, não:
+# um shell script com CRLF falha com "bad interpreter: /bin/sh^M: no such file or directory" —
+# mensagem que não sugere em nada que o problema é o fim de linha.
+#
+# O sintoma é traiçoeiro porque não aparece aqui: o arquivo funciona no disco de quem o
+# escreveu, e só quebra depois de um clone novo ou na CI.
+
+# Normaliza o repositório: o git decide o que é texto e guarda sempre com LF.
+* text=auto
+
+# Estes precisam de LF no disco de trabalho também, não só no repositório.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+Caddyfile text eol=lf
+.env.exemplo text eol=lf
+
+# Binários: o git não deve tentar converter nada.
+*.png binary
+*.jpg binary
+*.ico binary
+*.dump binary
