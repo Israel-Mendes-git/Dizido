@@ -18,6 +18,7 @@ else
                           AoSelecionar="Selecionar"
                           AoNovaConversa="AbrirNovaConversa"
                           AoNovoGrupo="() => _painel = Painel.NovoGrupo"
+                          AoBuscar="() => _painel = Painel.Busca"
                           AoSair="Sair" />
 
         <main class="dz-principal">
@@ -39,6 +40,21 @@ else
                     }
                     <button type="button" class="dz-botao-texto" @onclick="() => _painel = Painel.Nenhum">
                         cancelar
+                    </button>
+                </div>
+            }
+            else if (_painel == Painel.Busca)
+            {
+                <div class="dz-painel">
+                    <h2>Procurar</h2>
+
+                    <SearchPanel Api="Api"
+                                 Conversas="Store.Conversas"
+                                 MeuId="@(Sessao.UserId ?? Guid.Empty)"
+                                 AoEscolher="AbrirResultado" />
+
+                    <button type="button" class="dz-botao-texto" @onclick="() => _painel = Painel.Nenhum">
+                        voltar
                     </button>
                 </div>
             }
@@ -140,7 +156,7 @@ else
 }
 
 @code {
-    private enum Painel { Nenhum, NovaConversa, NovoGrupo }
+    private enum Painel { Nenhum, NovaConversa, NovoGrupo, Busca }
 
     private Painel _painel = Painel.Nenhum;
     private bool _painelGrupo;
@@ -325,6 +341,21 @@ else
     private bool EuModeroAConversaAtiva =>
         ConversaAtivaObj?.Members
             .FirstOrDefault(m => m.UserId == Sessao.UserId)?.Role is "Admin" or "Owner";
+
+    /// <summary>
+    /// Abre a conversa de um resultado de busca.
+    /// </summary>
+    /// <remarks>
+    /// Abre a conversa, mas não rola até a mensagem encontrada. Fazer isso exigiria carregar
+    /// o histórico a partir dela, e não do fim — outro modo de paginação, que a Fase 5 não
+    /// previu. Registrado como pendência; abrir a conversa certa já resolve o caso comum de
+    /// "onde foi mesmo que falamos disso".
+    /// </remarks>
+    private async Task AbrirResultado(MessageResponse mensagem)
+    {
+        _painel = Painel.Nenhum;
+        await Store.AbrirConversaAsync(mensagem.ConversationId);
+    }
 
     private Task<string?> EditarMensagem(MensagemNaTela mensagem, string texto) =>
         Store.EditarAsync(mensagem.Dados.ConversationId, mensagem.Dados.Id, texto);

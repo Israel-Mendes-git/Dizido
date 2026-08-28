@@ -12,6 +12,7 @@
     <div class="dz-lista__acoes">
         <button type="button" class="dz-botao" @onclick="AoNovaConversa">+ conversa</button>
         <button type="button" class="dz-botao" @onclick="AoNovoGrupo">+ grupo</button>
+        <button type="button" class="dz-botao" title="Procurar" @onclick="AoBuscar">buscar</button>
     </div>
 
     <nav class="dz-lista__itens">
@@ -56,6 +57,8 @@
     [Parameter] public EventCallback AoNovaConversa { get; set; }
 
     [Parameter] public EventCallback AoNovoGrupo { get; set; }
+
+    [Parameter] public EventCallback AoBuscar { get; set; }
 
     [Parameter] public EventCallback AoSair { get; set; }
 

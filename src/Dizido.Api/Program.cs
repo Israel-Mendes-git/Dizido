@@ -314,6 +314,7 @@ app.MapMessageEndpoints().RequireAuthorization();
 app.MapSyncEndpoints().RequireAuthorization();
 app.MapGroupEndpoints().RequireAuthorization();
 app.MapAttachmentEndpoints().RequireAuthorization();
+app.MapSearchEndpoints().RequireAuthorization();
 
 // O hub fica em /hubs/chat — o mesmo prefixo que o JwtBearerEvents aceita token por
 // query string, porque WebSocket nao permite cabecalho Authorization no handshake.

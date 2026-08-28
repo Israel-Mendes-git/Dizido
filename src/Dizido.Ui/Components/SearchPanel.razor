@@ -1,0 +1,194 @@
+@* Busca no histórico. *@
+@implements IDisposable
+
+<div class="dz-busca">
+    <div class="dz-busca__campo">
+        @* oninput, e não onkeydown, para agendar a busca.
+           O keydown parece equivalente enquanto se digita, mas ignora tudo que muda o campo
+           sem teclado: colar com o botão direito, o "x" nativo do input[type=search], o
+           preenchimento automático do navegador. Nesses casos o texto aparece no campo e
+           nada acontece — e o usuário conclui que a busca está quebrada. O oninput cobre
+           qualquer alteração de valor, seja qual for a origem. *@
+        <input type="search"
+               placeholder="Procurar nas conversas"
+               aria-label="Procurar nas conversas"
+               value="@_termo"
+               @oninput="AoMudarTexto"
+               @onkeydown="AoTeclar" />
+
+        @if (_termo.Length > 0)
+        {
+            <button type="button" class="dz-busca__limpar"
+                    title="Limpar" aria-label="Limpar busca"
+                    @onclick="Limpar">✕</button>
+        }
+    </div>
+
+    @if (_buscando)
+    {
+        <p class="dz-vazio">procurando…</p>
+    }
+    else if (_resultados is { Count: 0 })
+    {
+        <p class="dz-vazio">nada encontrado para “@_ultimoTermo”</p>
+    }
+    else if (_resultados is { Count: > 0 })
+    {
+        <ul class="dz-busca__lista" role="list">
+            @foreach (var mensagem in _resultados)
+            {
+                <li @key="mensagem.Id">
+                    <button type="button" class="dz-busca__item"
+                            @onclick="() => AoEscolher.InvokeAsync(mensagem)">
+                        <span class="dz-busca__item-topo">
+                            <span class="dz-busca__item-autor">@mensagem.SenderDisplayName</span>
+                            <span class="dz-busca__item-conversa">@NomeDaConversa(mensagem.ConversationId)</span>
+                            <time datetime="@mensagem.SentAt.ToString("o")">
+                                @mensagem.SentAt.ToLocalTime().ToString("dd/MM HH:mm")
+                            </time>
+                        </span>
+                        <span class="dz-busca__item-texto">@mensagem.Body</span>
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// Quanto esperar depois da última tecla antes de procurar.
+    /// </summary>
+    /// <remarks>
+    /// Sem esta pausa, digitar "reunião" dispararia sete buscas — e as respostas voltariam
+    /// fora de ordem, fazendo a lista piscar com resultados de prefixos antigos. Trezentos
+    /// milissegundos é curto o bastante para parecer imediato e longo o bastante para juntar
+    /// as teclas de quem digita rápido.
+    /// </remarks>
+    private const int EsperaMs = 300;
+
+    private string _termo = string.Empty;
+    private string _ultimoTermo = string.Empty;
+    private bool _buscando;
+    private IReadOnlyList<MessageResponse>? _resultados;
+    private CancellationTokenSource? _pendente;
+    private Timer? _debounce;
+
+    [Parameter, EditorRequired] public DizidoApiClient Api { get; set; } = null!;
+
+    /// <summary>As conversas carregadas, para dar nome ao resultado.</summary>
+    [Parameter] public IReadOnlyList<ConversationResponse> Conversas { get; set; } = [];
+
+    /// <summary>Id do usuário atual — o nome de um privado é o do outro participante.</summary>
+    [Parameter] public Guid MeuId { get; set; }
+
+    [Parameter] public EventCallback<MessageResponse> AoEscolher { get; set; }
+
+    private void AoMudarTexto(ChangeEventArgs e)
+    {
+        _termo = e.Value?.ToString() ?? string.Empty;
+        Agendar();
+    }
+
+    /// <summary>O teclado cuida só do Escape; a busca em si é disparada pelo oninput.</summary>
+    private void AoTeclar(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            Limpar();
+        }
+    }
+
+    private void Agendar()
+    {
+        _debounce?.Dispose();
+
+        _debounce = new Timer(async void (_) =>
+        {
+            try
+            {
+                await InvokeAsync(BuscarAsync);
+            }
+            catch (Exception)
+            {
+                // Callback de Timer é async void: uma exceção que escape daqui derruba o
+                // processo. Perder uma busca é inofensivo — a próxima tecla dispara outra.
+            }
+        }, null, TimeSpan.FromMilliseconds(EsperaMs), Timeout.InfiniteTimeSpan);
+    }
+
+    private async Task BuscarAsync()
+    {
+        var termo = _termo.Trim();
+
+        if (termo.Length < 2)
+        {
+            _resultados = null;
+            StateHasChanged();
+            return;
+        }
+
+        // Cancela a busca anterior antes de começar outra. Sem isso, uma resposta lenta de
+        // um termo antigo pode chegar DEPOIS da resposta do termo atual e sobrescrevê-la —
+        // a lista mostraria resultados de algo que o usuário já deixou de procurar.
+        _pendente?.Cancel();
+        _pendente = new CancellationTokenSource();
+        var meuToken = _pendente.Token;
+
+        _buscando = true;
+        StateHasChanged();
+
+        try
+        {
+            var achados = await Api.SearchAsync(termo, ct: meuToken);
+
+            if (!meuToken.IsCancellationRequested)
+            {
+                _resultados = achados;
+                _ultimoTermo = termo;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Substituída por uma busca mais nova. Nada a fazer.
+        }
+        finally
+        {
+            if (!meuToken.IsCancellationRequested)
+            {
+                _buscando = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void Limpar()
+    {
+        _termo = string.Empty;
+        _resultados = null;
+        _pendente?.Cancel();
+        _debounce?.Dispose();
+        _debounce = null;
+    }
+
+    private string NomeDaConversa(Guid id)
+    {
+        var conversa = Conversas.FirstOrDefault(c => c.Id == id);
+
+        if (conversa is null)
+        {
+            return "conversa";
+        }
+
+        return conversa.Title
+               ?? conversa.Members.FirstOrDefault(m => m.UserId != MeuId)?.DisplayName
+               ?? "conversa";
+    }
+
+    public void Dispose()
+    {
+        _debounce?.Dispose();
+        _pendente?.Cancel();
+        _pendente?.Dispose();
+    }
+}

@@ -280,6 +280,27 @@ public sealed class DizidoApiClient(HttpClient http, DizidoSession session)
             : null;
     }
 
+    // ----- busca -----
+
+    /// <summary>
+    /// Procura no histórico das conversas de que o usuário participa.
+    /// </summary>
+    /// <param name="conversationId">Limita a uma conversa. Nulo procura em todas.</param>
+    /// <remarks>
+    /// O escopo é decidido no servidor, a partir de quem está autenticado. O cliente não
+    /// consegue ampliar a busca para conversas alheias mudando parâmetro nenhum.
+    /// </remarks>
+    public async Task<IReadOnlyList<MessageResponse>> SearchAsync(
+        string termo, Guid? conversationId = null, CancellationToken ct = default)
+    {
+        var url = $"api/search?q={Uri.EscapeDataString(termo)}"
+                  + (conversationId is null ? string.Empty : $"&conversationId={conversationId}");
+
+        var pagina = await http.GetFromJsonAsync<MessagePage>(url, ct);
+
+        return pagina?.Items ?? [];
+    }
+
     // ----- sincronização -----
 
     /// <summary>Busca tudo que aconteceu depois dos cursores informados.</summary>
