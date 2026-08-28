@@ -55,6 +55,12 @@ services:
     environment:
       MINIO_ROOT_USER: dizido
       MINIO_ROOT_PASSWORD: dizido_dev_secret
+
+      # O navegador faz PUT direto aqui, vindo de http://localhost:5145 — origem diferente,
+      # então o MinIO precisa responder ao pedido de sondagem (OPTIONS) com CORS liberado.
+      # Sem isto o upload falha no navegador e funciona no curl, que é o tipo de diferença
+      # que faz perder uma tarde. Em produção, troque "*" pela origem do seu app.
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
       - "9000:9000"   # API S3
       - "9001:9001"   # console web -> http://localhost:9001

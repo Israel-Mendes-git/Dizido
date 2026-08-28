@@ -1,4 +1,5 @@
 using Dizido.Infrastructure.Persistence;
+using Dizido.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,6 +36,14 @@ public static class DependencyInjection
                 npgsql.EnableRetryOnFailure(maxRetryCount: 3, TimeSpan.FromSeconds(2), null);
             });
         });
+
+        services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
+
+        // Singleton: o cliente S3 mantém um pool de conexões HTTP e é seguro para uso
+        // concorrente. Criar um por requisição esgotaria sockets do mesmo jeito que um
+        // HttpClient novo a cada chamada.
+        services.AddSingleton<IObjectStorage, S3ObjectStorage>();
+        services.AddSingleton<IThumbnailer, SkiaThumbnailer>();
 
         return services;
     }
