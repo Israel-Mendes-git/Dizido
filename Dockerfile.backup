@@ -1,0 +1,21 @@
+# Imagem do serviço de backup: Postgres (pelo pg_dump) mais o cliente do MinIO.
+#
+# Existe porque as duas ferramentas precisam estar no MESMO contêiner. O pg_dump escreve o
+# arquivo; o mc o copia para fora da máquina. Separá-las em dois serviços exigiria um volume
+# compartilhado e um jeito de coordenar quem termina primeiro — muito trabalho para um script
+# de trinta linhas.
+#
+# O mc não é só para MinIO: ele fala o protocolo S3, então o mesmo binário envia para AWS S3,
+# Cloudflare R2 e Backblaze B2. É a mesma razão de o Dizido usar o SDK S3 no storage.
+
+FROM postgres:16-alpine
+
+# O Alpine instala o cliente do MinIO como "mcli", e não "mc", para não colidir com o
+# Midnight Commander. O link deixa o script chamá-lo pelo nome que a documentação do MinIO
+# usa — e evita que alguém copie um comando pronto da internet e não entenda por que falha.
+RUN apk add --no-cache minio-client \
+    && ln -s /usr/bin/mcli /usr/local/bin/mc
+
+COPY deploy/backup.sh /backup.sh
+
+ENTRYPOINT ["/bin/sh", "/backup.sh"]

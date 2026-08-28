@@ -2,6 +2,7 @@ using Dizido.Api;
 using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
 using Dizido.Api.Endpoints;
+using Dizido.Api.Faxina;
 using Dizido.Api.Health;
 using Dizido.Api.Observabilidade;
 using Dizido.Infrastructure;
@@ -189,6 +190,10 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(
 
 builder.Services.AddSingleton<IPresenceTracker, RedisPresenceTracker>();
 builder.Services.AddSingleton<IConversationNotifier, ConversationNotifier>();
+
+// Manutenção de fundo: apaga tokens vencidos e anexos abandonados. Ver ServicoDeFaxina
+// para o porquê de isso viajar dentro da aplicação em vez de um cron externo.
+builder.Services.AddHostedService<ServicoDeFaxina>();
 
 builder.Services
     .AddSignalR(options =>

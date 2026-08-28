@@ -10,6 +10,14 @@
 # errada", que é o acidente mais comum, mas NÃO serve contra perder a máquina. Copie os
 # arquivos para fora (outro servidor, um bucket, um disco) — backup que mora junto do original
 # não é backup, é uma segunda cópia esperando o mesmo acidente.
+#
+# Defina DESTINO_REMOTO no .env para que cada backup seja enviado para fora automaticamente.
+# O formato é o de um alias do mc (cliente do MinIO), configurado por MC_HOST_<alias>:
+#
+#   DESTINO_REMOTO=remoto/dizido-backups
+#   MC_HOST_remoto=https://CHAVE:SEGREDO@s3.exemplo.com
+#
+# O mesmo alias serve para AWS S3, Cloudflare R2, Backblaze B2 e outro MinIO.
 
 set -eu
 
@@ -37,6 +45,18 @@ while true; do
 
 		mv "$ARQUIVO.parcial" "$ARQUIVO"
 		echo "backup: pronto ($(du -h "$ARQUIVO" | cut -f1))"
+
+		# Cópia para fora da máquina, quando configurada. É o passo que transforma isto num
+		# backup de verdade: sem ele, o incêndio que leva o banco leva os dumps junto.
+		if [ -n "${DESTINO_REMOTO:-}" ]; then
+			if command -v mc >/dev/null 2>&1 && mc cp "$ARQUIVO" "$DESTINO_REMOTO/"; then
+				echo "backup: copiado para $DESTINO_REMOTO"
+			else
+				# Não é fatal: o backup local existe. Mas precisa gritar, porque a proteção
+				# que se acreditava ter não está lá.
+				echo "backup: ATENÇÃO — a cópia para $DESTINO_REMOTO falhou"
+			fi
+		fi
 
 		# A limpeza só acontece depois de um backup bem-sucedido. Se o dump está falhando há
 		# uma semana, apagar os antigos por idade deixaria você sem nenhum.

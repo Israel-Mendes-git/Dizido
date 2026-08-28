@@ -19,7 +19,7 @@ services:
   # A única porta aberta para o mundo
   # ---------------------------------------------------------------------------
   caddy:
-    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}-web:latest
+    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}-web:${DIZIDO_VERSAO:-latest}
     build:
       context: .
       dockerfile: Dockerfile.web
@@ -44,7 +44,7 @@ services:
   # Migrations: roda uma vez, termina, e a API só sobe depois
   # ---------------------------------------------------------------------------
   migrations:
-    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}:latest
+    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}:${DIZIDO_VERSAO:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -70,7 +70,7 @@ services:
   # A aplicação
   # ---------------------------------------------------------------------------
   api:
-    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}:latest
+    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}:${DIZIDO_VERSAO:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -172,16 +172,27 @@ services:
   # Backup
   # ---------------------------------------------------------------------------
   backup:
-    image: postgres:16-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
     restart: unless-stopped
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:?}
-      # Quantos dias de backup guardar.
+
+      # Quantos dias de backup guardar localmente.
       RETENCAO_DIAS: ${BACKUP_RETENCAO_DIAS:-14}
+
+      # Para onde copiar cada dump, no formato "alias/bucket" do mc. Vazio desliga a cópia —
+      # e aí o backup mora na mesma máquina do banco, o que protege contra apagar a tabela
+      # errada mas não contra perder a máquina.
+      DESTINO_REMOTO: ${BACKUP_DESTINO_REMOTO:-}
+
+      # As credenciais do destino, no formato que o mc espera:
+      # MC_HOST_<alias>=https://CHAVE:SEGREDO@endpoint
+      MC_HOST_remoto: ${BACKUP_MC_HOST:-}
+
     volumes:
-      - ./deploy/backup.sh:/backup.sh:ro
       - backups:/backups
-    entrypoint: ["/bin/sh", "/backup.sh"]
     depends_on:
       db:
         condition: service_healthy
