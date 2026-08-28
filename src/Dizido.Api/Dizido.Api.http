@@ -1,0 +1,228 @@
+### Dizido — requisições de teste (Fases 1 e 2)
+#
+# Como usar:
+#   1. docker compose up -d          (na raiz do repositório)
+#   2. dotnet run                    (nesta pasta)
+#   3. clique em "Send Request" acima de cada bloco (VS Code: extensão REST Client; Rider: nativo)
+#
+# Execute na ordem: os blocos guardam valores em variáveis usadas pelos seguintes.
+#
+# ATENÇÃO ao rate limit: /api/auth aceita 10 requisições por minuto por IP. Rodar todos os
+# blocos de auth em sequência rápida devolve 429 — é o comportamento correto, não um bug.
+
+@host = http://localhost:5224
+
+### Sanidade
+GET {{host}}/
+
+###############################################
+# Autenticação
+###############################################
+
+### Registro — cria conta, perfil e já devolve sessão
+# O refresh token não vem no corpo: vai num cookie HttpOnly, invisível para JavaScript.
+# @name registrarIsrael
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "israel@rapaduraatomica.com.br",
+  "password": "senha-bem-comprida-2026",
+  "displayName": "Israel"
+}
+
+@tokenIsrael = {{registrarIsrael.response.body.accessToken}}
+
+### Registro do segundo usuário
+# @name registrarRapadura
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "rapadura@exemplo.com",
+  "password": "outra-senha-comprida-2026",
+  "displayName": "Rapadura"
+}
+
+@tokenRapadura = {{registrarRapadura.response.body.accessToken}}
+@idRapadura = {{registrarRapadura.response.body.userId}}
+
+### Login
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "israel@rapaduraatomica.com.br",
+  "password": "senha-bem-comprida-2026"
+}
+
+### Renovação — troca o refresh token por um novo (rotação)
+# O cookie é enviado automaticamente pelo cliente HTTP.
+POST {{host}}/api/auth/refresh
+
+### DETECÇÃO DE REUSO — dispare o bloco acima duas vezes seguidas.
+# Na segunda, o token apresentado já foi revogado pela rotação. O servidor não tem como
+# distinguir "cliente perdeu a resposta" de "alguém roubou o token", então trata como roubo:
+# revoga a FAMÍLIA INTEIRA de tokens daquela sessão e responde 401. Você precisa logar de novo.
+
+### Logout — revoga o refresh token e apaga o cookie
+POST {{host}}/api/auth/logout
+
+###############################################
+# Usuários
+###############################################
+
+### Meu perfil (id vem do token, não da URL)
+GET {{host}}/api/users/me
+Authorization: Bearer {{tokenIsrael}}
+
+### Lista de usuários
+GET {{host}}/api/users
+Authorization: Bearer {{tokenIsrael}}
+
+###############################################
+# Conversas e mensagens
+###############################################
+
+### Abre conversa direta
+# Repetir devolve a MESMA conversa (200), não cria outra.
+# @name abrirPrivado
+POST {{host}}/api/conversations/direct
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "otherUserId": "{{idRapadura}}"
+}
+
+@conversa = {{abrirPrivado.response.body.id}}
+
+### Envia mensagem
+# Repare: o corpo NÃO diz quem é o remetente. Isso vem do token — não há como
+# se passar por outra pessoa mudando o JSON.
+POST {{host}}/api/conversations/{{conversa}}/messages
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "clientMessageId": "11111111-1111-4111-8111-111111111111",
+  "body": "e aí, tudo certo?"
+}
+
+### Resposta do outro lado
+POST {{host}}/api/conversations/{{conversa}}/messages
+Content-Type: application/json
+Authorization: Bearer {{tokenRapadura}}
+
+{
+  "clientMessageId": "22222222-2222-4222-8222-222222222222",
+  "body": "tudo. e por aí?"
+}
+
+### IDEMPOTÊNCIA — reenvie o bloco acima sem trocar o clientMessageId.
+# HTTP 200 (não 201), e nenhuma mensagem nova na listagem.
+
+### Histórico
+GET {{host}}/api/conversations/{{conversa}}/messages
+Authorization: Bearer {{tokenIsrael}}
+
+### Paginação por cursor — primeira página
+# @name pagina1
+GET {{host}}/api/conversations/{{conversa}}/messages?limit=1
+Authorization: Bearer {{tokenIsrael}}
+
+### Próxima página
+GET {{host}}/api/conversations/{{conversa}}/messages?limit=1&before={{pagina1.response.body.nextCursor}}
+Authorization: Bearer {{tokenIsrael}}
+
+### Minhas conversas
+GET {{host}}/api/conversations
+Authorization: Bearer {{tokenIsrael}}
+
+### Cria grupo
+# @name criarGrupo
+POST {{host}}/api/conversations/groups
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "title": "Rapadura Atômica"
+}
+
+@grupo = {{criarGrupo.response.body.id}}
+
+### Adiciona alguém ao grupo
+POST {{host}}/api/conversations/{{grupo}}/members/{{idRapadura}}
+Authorization: Bearer {{tokenIsrael}}
+
+###############################################
+# Casos de erro — o que DEVE dar errado
+###############################################
+
+### Sem token -> 401
+GET {{host}}/api/conversations
+
+### Token forjado -> 401 (a assinatura não confere)
+GET {{host}}/api/conversations
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWxzbyJ9.assinatura-invalida
+
+### Senha errada -> 401
+# A resposta é IDÊNTICA à de um email inexistente, de propósito: respostas diferentes
+# permitiriam descobrir quais emails têm conta no serviço.
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "israel@rapaduraatomica.com.br",
+  "password": "chute-errado-mesmo"
+}
+
+### Email que não existe -> 401 com a MESMA mensagem
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "ninguem@exemplo.com",
+  "password": "senha-bem-comprida-2026"
+}
+
+### Senha curta -> 400 com a lista de requisitos
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "curta@exemplo.com",
+  "password": "123",
+  "displayName": "Teste"
+}
+
+### Mensagem vazia -> 400 vindo do domínio
+POST {{host}}/api/conversations/{{conversa}}/messages
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "clientMessageId": "33333333-3333-4333-8333-333333333333",
+  "body": "   "
+}
+
+### JSON malformado (Guid vazio) -> 400, não 500
+POST {{host}}/api/conversations/{{conversa}}/messages
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "clientMessageId": "",
+  "body": "isso nem chega no domínio"
+}
+
+### Força bruta -> 429
+# Dispare este bloco umas 12 vezes seguidas. A partir da 11ª no mesmo minuto, 429.
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "israel@rapaduraatomica.com.br",
+  "password": "tentativa-de-adivinhar"
+}

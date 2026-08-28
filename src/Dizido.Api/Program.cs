@@ -1,0 +1,229 @@
+using Dizido.Api;
+using Dizido.Api.Auth;
+using Dizido.Api.Endpoints;
+using Dizido.Infrastructure;
+using Dizido.Infrastructure.Identity;
+using Dizido.Api.Realtime;
+using Dizido.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using StackExchange.Redis;
+using System.Threading.RateLimiting;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Registra o DizidoDbContext e a conexão com o Postgres.
+// A API não menciona Npgsql em lugar nenhum — isso é detalhe da Infrastructure.
+builder.Services.AddDizidoInfrastructure(builder.Configuration);
+
+// TimeProvider é a abstração de relógio do .NET 8+. As entidades recebem o instante como
+// parâmetro em vez de chamarem DateTimeOffset.UtcNow por dentro — assim os testes injetam
+// um relógio fixo e nenhum teste depende de quando foi executado.
+builder.Services.AddSingleton(TimeProvider.System);
+
+builder.Services.AddHttpContextAccessor();
+
+// ---------------------------------------------------------------------------
+// Autenticação
+// ---------------------------------------------------------------------------
+
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+
+var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
+    ?? throw new InvalidOperationException("Seção 'Jwt' ausente na configuração.");
+
+// Falhar no start é melhor do que emitir tokens assináveis por qualquer um. Um erro na
+// inicialização é visível na hora; uma chave fraca em produção passa despercebida por meses.
+if (jwtOptions.SigningKey.Length < 32)
+{
+    throw new InvalidOperationException(
+        "Jwt:SigningKey precisa ter ao menos 32 caracteres. Em produção, defina a variável "
+        + "de ambiente Jwt__SigningKey — nunca reaproveite a chave de desenvolvimento.");
+}
+
+builder.Services
+    .AddIdentityCore<DizidoUser>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+
+        // Comprimento é o fator que mais importa numa senha. Exigir símbolo e maiúscula
+        // empurra as pessoas para "Senha123!" — previsível e curta. Um mínimo maior, sem
+        // exigências decorativas, resiste melhor a ataque de dicionário.
+        options.Password.RequiredLength = 10;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequireUppercase = false;
+        options.Password.RequireDigit = false;
+
+        options.Lockout.MaxFailedAccessAttempts = 5;
+        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    })
+    .AddEntityFrameworkStores<DizidoDbContext>();
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtOptions.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
+            ValidateLifetime = true,
+
+            // O padrão do .NET tolera 5 minutos de diferença de relógio — o que faria um token
+            // de 15 min valer por 20. Zero exige relógios sincronizados (NTP), o que é o caso
+            // em qualquer servidor moderno.
+            ClockSkew = TimeSpan.Zero,
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                // WebSocket não permite definir o cabeçalho Authorization no handshake, então
+                // o cliente SignalR manda o token na query string. Sem isto, o hub da Fase 3
+                // rejeitaria toda conexão. Restrito ao caminho do hub: aceitar token por query
+                // string em toda a API o faria vazar em logs de servidor e histórico de navegação.
+                var token = context.Request.Query["access_token"];
+
+                if (!string.IsNullOrEmpty(token) &&
+                    context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            },
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+// A implementação provisória da Fase 1 (HeaderCurrentUser, que lia um cabeçalho forjável)
+// foi substituída aqui. Nenhum endpoint mudou — todos pedem ICurrentUser, não o cabeçalho.
+builder.Services.AddScoped<ICurrentUser, JwtCurrentUser>();
+builder.Services.AddSingleton<IAccessTokenService, AccessTokenService>();
+
+// Sem isto, tentar senhas em sequência custa nada ao atacante. O limite é por IP e vale
+// para todos os endpoints de autenticação.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy("auth", http => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: http.Connection.RemoteIpAddress?.ToString() ?? "desconhecido",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+        }));
+});
+
+// ---------------------------------------------------------------------------
+// Tempo real
+// ---------------------------------------------------------------------------
+
+var redisConnection = builder.Configuration.GetConnectionString("Redis")
+    ?? throw new InvalidOperationException("Connection string 'Redis' ausente.");
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(
+    _ => ConnectionMultiplexer.Connect(redisConnection));
+
+builder.Services.AddSingleton<IPresenceTracker, RedisPresenceTracker>();
+builder.Services.AddSingleton<IConversationNotifier, ConversationNotifier>();
+
+builder.Services
+    .AddSignalR(options =>
+    {
+        // Em desenvolvimento, ver a exceção real no cliente economiza muito tempo.
+        // Em produção isso vazaria stack trace, então fica preso ao ambiente.
+        options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    })
+    // O backplane. Com uma única instância ele não faz diferença nenhuma — está aqui porque
+    // descobrir que falta ao subir a segunda instância, em produção, é péssimo: metade dos
+    // usuários simplesmente para de receber mensagens da outra metade, sem erro nenhum no log.
+    .AddStackExchangeRedis(redisConnection, options =>
+        options.Configuration.ChannelPrefix = RedisChannel.Literal("dizido"));
+
+// ---------------------------------------------------------------------------
+// CORS
+// ---------------------------------------------------------------------------
+
+// Em desenvolvimento o Blazor roda em :5145 e a API em :5224 — origens diferentes, então o
+// navegador exige CORS. Em produção os dois são servidos pela mesma origem e nada disso é usado.
+//
+// Note AllowCredentials() junto com origens EXPLÍCITAS: o navegador recusa, por especificação,
+// combinar "*" com credenciais. É proposital — permitir qualquer origem enviar cookies
+// autenticados seria entregar a sessão do usuário para qualquer site que ele visitasse.
+var origensPermitidas = builder.Configuration.GetSection("Cors:Origens").Get<string[]>()
+    ?? ["http://localhost:5145", "https://localhost:7247"];
+
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
+    .WithOrigins(origensPermitidas)
+    .AllowAnyHeader()
+    .AllowAnyMethod()
+    .AllowCredentials()));
+
+// ---------------------------------------------------------------------------
+
+// ProblemDetails (RFC 9457) como formato padrão de erro em toda a API.
+builder.Services.AddProblemDetails();
+
+// A ordem importa: os handlers são tentados nesta sequência, e cada um devolve false
+// para o que não é da sua alçada. O que nenhum tratar vira 500 — como deve ser.
+builder.Services.AddExceptionHandler<DomainExceptionHandler>();
+builder.Services.AddExceptionHandler<BadRequestExceptionHandler>();
+
+builder.Services.AddOpenApi();
+
+var app = builder.Build();
+
+app.UseExceptionHandler();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+// CORS antes de autenticação: a requisição de sondagem (OPTIONS) que o navegador manda
+// não carrega credenciais, e precisa ser respondida antes de qualquer verificação de token.
+app.UseCors();
+
+app.UseRateLimiter();
+
+// Ordem obrigatória: autenticação ("quem é você") antes de autorização ("você pode?").
+// Invertido, a autorização rodaria sem saber quem é o usuário e negaria tudo.
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/", () => Results.Ok(new { service = "Dizido.Api", status = "ok" }))
+   .ExcludeFromDescription()
+   .AllowAnonymous();
+
+app.MapAuthEndpoints().RequireRateLimiting("auth");
+
+// RequireAuthorization no grupo inteiro: qualquer endpoint novo já nasce protegido.
+// O contrário — proteger um por um — significa que esquecer uma linha abre um buraco em
+// silêncio, e ninguém percebe até alguém encontrar.
+app.MapUserEndpoints().RequireAuthorization();
+app.MapConversationEndpoints().RequireAuthorization();
+app.MapMessageEndpoints().RequireAuthorization();
+app.MapSyncEndpoints().RequireAuthorization();
+app.MapGroupEndpoints().RequireAuthorization();
+
+// O hub fica em /hubs/chat — o mesmo prefixo que o JwtBearerEvents aceita token por
+// query string, porque WebSocket nao permite cabecalho Authorization no handshake.
+app.MapHub<ChatHub>("/hubs/chat").RequireAuthorization();
+
+app.Run();
+
+/// <summary>
+/// Necessária para os testes de integração acessarem a classe Program gerada implicitamente
+/// pelas top-level statements (WebApplicationFactory&lt;Program&gt;).
+/// </summary>
+public partial class Program;
