@@ -241,6 +241,62 @@ button { font: inherit; cursor: pointer; }
 
 .dz-bubble__texto { white-space: pre-wrap; }
 
+/* ---------- anexos ---------- */
+
+.dz-anexo-imagem {
+    display: block;
+    max-width: 320px;
+    /* O aspect-ratio vem do componente, com as dimensões reais da imagem: o espaço fica
+       reservado antes de a foto chegar e o fluxo da conversa não pula durante o carregamento. */
+    border-radius: var(--dz-raio);
+    overflow: hidden;
+    background: var(--dz-painel-2);
+    margin-bottom: 6px;
+}
+
+.dz-anexo-imagem img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.dz-anexo-arquivo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 320px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    background: var(--dz-painel-2);
+    color: inherit;
+    text-decoration: none;
+}
+
+.dz-anexo-arquivo:hover { border-color: var(--dz-acento); }
+
+.dz-anexo-arquivo__icone { font-size: 20px; }
+
+.dz-anexo-arquivo__texto {
+    display: flex;
+    flex-direction: column;
+    /* Sem isto, um nome longo empurra o cartão para fora do balão em vez de ser cortado. */
+    min-width: 0;
+}
+
+.dz-anexo-arquivo__nome {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dz-anexo-arquivo__tamanho {
+    font-size: 12px;
+    color: var(--dz-texto-fraco);
+}
+
 .dz-bubble__rodape {
     display: flex;
     align-items: center;
@@ -336,6 +392,70 @@ button { font: inherit; cursor: pointer; }
 }
 
 .dz-composer__enviar:disabled { opacity: .45; cursor: default; }
+
+/* O seletor de arquivo nativo não aceita estilo. Escondê-lo e acionar pelo label é o jeito
+   padrão de ter um botão que combine com o resto da interface. Note que ele continua no DOM
+   (e não display:none), para o teclado ainda alcançá-lo. */
+.dz-composer__anexar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    background: var(--dz-painel-2);
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.dz-composer__anexar:hover { border-color: var(--dz-acento); }
+
+.dz-composer__anexar input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.dz-composer__anexo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    border-top: 1px solid var(--dz-borda);
+    background: var(--dz-painel);
+    font-size: 13px;
+}
+
+.dz-composer__anexo-nome {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dz-composer__anexo-tamanho {
+    color: var(--dz-texto-fraco);
+    margin-right: auto;
+}
+
+.dz-composer__anexo-tirar {
+    background: none;
+    border: 0;
+    color: var(--dz-texto-fraco);
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.dz-composer__anexo-tirar:hover { color: var(--dz-erro); }
+
+.dz-composer__erro {
+    margin: 0;
+    padding: 8px 20px;
+    background: var(--dz-painel);
+    border-top: 1px solid var(--dz-borda);
+    color: var(--dz-erro);
+    font-size: 13px;
+}
 
 /* ---------- botões ---------- */
 

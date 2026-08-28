@@ -1,9 +1,11 @@
+using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Auth;
 using Dizido.Contracts.Conversations;
 using Dizido.Contracts.Messages;
 using Dizido.Contracts.Sync;
 using Dizido.Contracts.Users;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 
 namespace Dizido.Client;
@@ -175,6 +177,94 @@ public sealed class DizidoApiClient(HttpClient http, DizidoSession session)
         }
 
         return (null, await LerProblemaAsync(res, ct));
+    }
+
+    // ----- anexos -----
+
+    /// <summary>
+    /// Sobe um arquivo e devolve o anexo pronto para virar mensagem.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Os três passos ficam escondidos aqui dentro de propósito: quem chama quer "sobe este
+    /// arquivo", não coreografar pedido, PUT e confirmação. Note que o passo do meio usa um
+    /// <see cref="HttpClient"/> <b>novo</b>, e não o da API — o do Dizido carrega o token de
+    /// acesso em toda requisição, e mandá-lo para o storage entregaria a sessão do usuário a
+    /// um serviço que não tem nada que ver com ela.
+    /// </para>
+    /// <para>
+    /// O relatório de progresso não existe aqui: o navegador não expõe progresso de upload
+    /// pelo <c>HttpClient</c> do .NET. Para uma barra de verdade seria preciso passar pelo
+    /// JavaScript, e isso fica para quando incomodar.
+    /// </para>
+    /// </remarks>
+    public async Task<(AttachmentResponse? Anexo, string? Erro)> UploadAsync(
+        Guid conversationId,
+        string fileName,
+        string contentType,
+        Stream conteudo,
+        long tamanho,
+        CancellationToken ct = default)
+    {
+        var pedido = await http.PostAsJsonAsync(
+            $"api/conversations/{conversationId}/attachments",
+            new RequestUploadRequest(fileName, contentType, tamanho),
+            ct);
+
+        if (!pedido.IsSuccessStatusCode)
+        {
+            return (null, await LerProblemaAsync(pedido, ct));
+        }
+
+        var bilhete = await pedido.Content.ReadFromJsonAsync<UploadTicketResponse>(ct);
+
+        if (bilhete is null)
+        {
+            return (null, "O servidor não devolveu a autorização de upload.");
+        }
+
+        // O stream que o navegador entrega ao ler um arquivo escolhido não sabe o próprio
+        // tamanho. Um StreamContent sobre ele viraria "Transfer-Encoding: chunked", e o S3
+        // recusa isso numa URL assinada — a assinatura pressupõe um corpo de tamanho conhecido.
+        // Copiar para memória resolve; o teto de 50 MB é o que torna isso aceitável.
+        await using var emMemoria = conteudo.CanSeek ? null : new MemoryStream();
+
+        if (emMemoria is not null)
+        {
+            await conteudo.CopyToAsync(emMemoria, ct);
+            emMemoria.Position = 0;
+        }
+
+        using (var direto = new HttpClient())
+        using (var corpo = new StreamContent(emMemoria ?? conteudo))
+        {
+            // O Content-Type faz parte da assinatura. Mandar outro faz o storage recusar
+            // com 403, e a mensagem dele não explica nada.
+            corpo.Headers.ContentType = new MediaTypeHeaderValue(bilhete.ContentType);
+
+            var envio = await direto.PutAsync(new Uri(bilhete.UploadUrl), corpo, ct);
+
+            if (!envio.IsSuccessStatusCode)
+            {
+                return (null, $"O envio do arquivo falhou ({(int)envio.StatusCode}).");
+            }
+        }
+
+        var confirmacao = await http.PostAsync($"api/attachments/{bilhete.AttachmentId}/complete", null, ct);
+
+        return confirmacao.IsSuccessStatusCode
+            ? (await confirmacao.Content.ReadFromJsonAsync<AttachmentResponse>(ct), null)
+            : (null, await LerProblemaAsync(confirmacao, ct));
+    }
+
+    /// <summary>Renova as URLs de um anexo cujas assinaturas expiraram.</summary>
+    public async Task<AttachmentResponse?> RefreshAttachmentAsync(Guid id, CancellationToken ct = default)
+    {
+        var res = await http.GetAsync($"api/attachments/{id}", ct);
+
+        return res.IsSuccessStatusCode
+            ? await res.Content.ReadFromJsonAsync<AttachmentResponse>(ct)
+            : null;
     }
 
     // ----- sincronização -----

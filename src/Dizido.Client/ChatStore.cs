@@ -1,3 +1,4 @@
+using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Conversations;
 using Dizido.Contracts.Messages;
 using Dizido.Contracts.Realtime;
@@ -227,20 +228,55 @@ public sealed class ChatStore(
     /// instantânea, e o resto acontece sozinho — inclusive na próxima abertura do app, se
     /// for preciso.
     /// </remarks>
-    public async Task EnviarAsync(Guid conversationId, string texto, CancellationToken ct = default)
+    public async Task EnviarAsync(
+        Guid conversationId,
+        string texto,
+        AttachmentResponse? anexo = null,
+        CancellationToken ct = default)
     {
         var clientMessageId = Guid.NewGuid();
         var agora = clock.GetUtcNow();
 
         Lista(conversationId).Add(new MensagemNaTela(
-            Provisoria(conversationId, texto, clientMessageId, agora),
+            Provisoria(conversationId, texto, clientMessageId, agora, anexo),
             EstadoEnvio.Enviando));
 
         await outbox.EnfileirarAsync(
-            new ItemDaFila(conversationId, clientMessageId, texto, agora));
+            new ItemDaFila(conversationId, clientMessageId, texto, agora, anexo?.Id));
 
         Changed?.Invoke();
         IniciarDrenagem();
+    }
+
+    /// <summary>
+    /// Sobe um arquivo e manda a mensagem que o carrega.
+    /// </summary>
+    /// <remarks>
+    /// O upload acontece agora, e não pela fila: sem rede, não há como enviar o arquivo, e
+    /// a função devolve o erro para a tela mostrar. Só depois de o anexo estar confirmado a
+    /// mensagem entra na fila — daí em diante ela é tão resiliente quanto qualquer outra.
+    /// </remarks>
+    /// <returns>Mensagem de erro, ou <c>null</c> se deu certo.</returns>
+    public async Task<string?> EnviarArquivoAsync(
+        Guid conversationId,
+        string texto,
+        string fileName,
+        string contentType,
+        Stream conteudo,
+        long tamanho,
+        CancellationToken ct = default)
+    {
+        var (anexo, erro) = await api.UploadAsync(
+            conversationId, fileName, contentType, conteudo, tamanho, ct);
+
+        if (anexo is null)
+        {
+            return erro ?? "Não foi possível enviar o arquivo.";
+        }
+
+        await EnviarAsync(conversationId, texto, anexo, ct);
+
+        return null;
     }
 
     /// <summary>Reenfileira uma mensagem que falhou.</summary>
@@ -262,10 +298,37 @@ public sealed class ChatStore(
             mensagem.Dados.ConversationId,
             mensagem.Dados.ClientMessageId,
             mensagem.Dados.Body,
-            mensagem.Dados.SentAt));
+            mensagem.Dados.SentAt,
+            mensagem.Dados.Attachment?.Id));
 
         Changed?.Invoke();
         IniciarDrenagem();
+    }
+
+    /// <summary>
+    /// Troca um anexo por uma versão com URLs recém-assinadas, onde quer que ele apareça.
+    /// </summary>
+    /// <remarks>
+    /// O mesmo arquivo pode estar em mais de uma mensagem (alguém reenviou a mesma foto), e
+    /// por isso a substituição varre todas as conversas carregadas em vez de mexer só na
+    /// mensagem que reclamou.
+    /// </remarks>
+    public void AtualizarAnexo(AttachmentResponse anexo)
+    {
+        ArgumentNullException.ThrowIfNull(anexo);
+
+        foreach (var lista in _mensagens.Values)
+        {
+            for (var i = 0; i < lista.Count; i++)
+            {
+                if (lista[i].Dados.Attachment?.Id == anexo.Id)
+                {
+                    lista[i] = lista[i] with { Dados = lista[i].Dados with { Attachment = anexo } };
+                }
+            }
+        }
+
+        Changed?.Invoke();
     }
 
     /// <summary>Fecha a conversa aberta (usado ao sair de um grupo).</summary>
@@ -331,7 +394,7 @@ public sealed class ChatStore(
 
                 var (mensagem, _) = await api.SendMessageAsync(
                     item.ConversationId,
-                    new SendMessageRequest(item.ClientMessageId, item.Body),
+                        new SendMessageRequest(item.ClientMessageId, item.Body, AttachmentId: item.AttachmentId),
                     ct);
 
                 if (mensagem is not null)
@@ -600,7 +663,20 @@ public sealed class ChatStore(
     private static bool EhAnterior(Guid a, Guid b) =>
         string.CompareOrdinal(a.ToString("N"), b.ToString("N")) < 0;
 
-    private MessageResponse Provisoria(Guid conversationId, string texto, Guid clientMessageId, DateTimeOffset quando) =>
+    /// <summary>
+    /// A mensagem que aparece na tela antes de o servidor confirmar (interface otimista).
+    /// </summary>
+    /// <remarks>
+    /// Recebe o anexo já pronto, com as URLs assinadas: o upload terminou antes de a mensagem
+    /// entrar na fila, então a imagem aparece no balão desde o primeiro instante — e não
+    /// depois que o servidor responder.
+    /// </remarks>
+    private MessageResponse Provisoria(
+        Guid conversationId,
+        string texto,
+        Guid clientMessageId,
+        DateTimeOffset quando,
+        AttachmentResponse? anexo = null) =>
         new(
             Id: Guid.CreateVersion7(quando),
             ConversationId: conversationId,
@@ -611,7 +687,8 @@ public sealed class ChatStore(
             ReplyToMessageId: null,
             SentAt: quando,
             EditedAt: null,
-            IsDeleted: false);
+            IsDeleted: false,
+            Attachment: anexo);
 
     private void SemearPresenca(IEnumerable<ConversationMemberResponse> membros)
     {

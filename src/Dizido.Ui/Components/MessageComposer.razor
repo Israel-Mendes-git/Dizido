@@ -1,6 +1,31 @@
 @implements IDisposable
 
+@if (_arquivo is not null)
+{
+    <div class="dz-composer__anexo">
+        <span class="dz-composer__anexo-nome" title="@_arquivo.Name">📎 @_arquivo.Name</span>
+        <span class="dz-composer__anexo-tamanho">@Tamanho(_arquivo.Size)</span>
+
+        <button type="button" class="dz-composer__anexo-tirar" @onclick="TirarArquivo" title="Remover anexo">
+            ✕
+        </button>
+    </div>
+}
+
+@if (_erro is not null)
+{
+    <p class="dz-composer__erro" role="alert">@_erro</p>
+}
+
 <form class="dz-composer" @onsubmit="Enviar" @onsubmit:preventDefault>
+    @* O InputFile fica escondido e é acionado pelo label: o seletor nativo do navegador
+       não aceita ser estilizado, e um botão que combina com o resto da interface vale
+       mais do que a caixa cinza padrão. *@
+    <label class="dz-composer__anexar" title="Anexar arquivo">
+        📎
+        <InputFile OnChange="AoEscolherArquivo" disabled="@(Desabilitado || _enviandoArquivo)" />
+    </label>
+
     <textarea @ref="_campo"
               class="dz-composer__campo"
               rows="1"
@@ -11,23 +36,42 @@
               @onkeydown="AoTeclar"></textarea>
 
     <button type="submit" class="dz-composer__enviar"
-            disabled="@(Desabilitado || string.IsNullOrWhiteSpace(_texto))"
+            disabled="@(Desabilitado || _enviandoArquivo || (string.IsNullOrWhiteSpace(_texto) && _arquivo is null))"
             title="Enviar (Enter)">
-        Enviar
+        @(_enviandoArquivo ? "Enviando…" : "Enviar")
     </button>
 </form>
 
 @code {
+    /// <summary>O maior anexo aceito, em bytes. Tem que bater com o limite do domínio.</summary>
+    private const long LimiteDeArquivo = 50L * 1024 * 1024;
+
     private string _texto = string.Empty;
     private ElementReference _campo;
     private Timer? _pararDeDigitar;
     private bool _sinalizouDigitando;
+    private IBrowserFile? _arquivo;
+    private bool _enviandoArquivo;
+    private string? _erro;
 
     [Parameter] public bool Desabilitado { get; set; }
 
     [Parameter, EditorRequired] public EventCallback<string> AoEnviar { get; set; }
 
+    /// <summary>
+    /// Envia um arquivo com legenda opcional. Devolve a mensagem de erro, ou <c>null</c>.
+    /// </summary>
+    /// <remarks>
+    /// O componente não sabe subir arquivo — quem sabe é o <c>ChatStore</c>. Ele só entrega
+    /// o que o usuário escolheu e mostra o que voltou. É a mesma fronteira que mantém a
+    /// pasta de componentes reaproveitável pelo app desktop da fase 10.
+    /// </remarks>
+    [Parameter] public Func<ArquivoEscolhido, Task<string?>>? AoEnviarArquivo { get; set; }
+
     [Parameter] public EventCallback<bool> AoDigitar { get; set; }
+
+    /// <summary>O que o usuário escolheu, pronto para subir.</summary>
+    public sealed record ArquivoEscolhido(string Nome, string ContentType, long Tamanho, Stream Conteudo, string Legenda);
 
     /// <summary>
     /// Enter envia; Shift+Enter quebra linha.
@@ -81,16 +125,39 @@
         }, null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
     }
 
+    private void AoEscolherArquivo(InputFileChangeEventArgs e)
+    {
+        _erro = null;
+
+        var escolhido = e.File;
+
+        // Recusar aqui, e não depois de subir: o servidor também confere, mas deixar o
+        // usuário esperar o upload de um arquivo de 200 MB para só então dizer "não cabe"
+        // seria desperdiçar a banda dele por nada.
+        if (escolhido.Size > LimiteDeArquivo)
+        {
+            _erro = $"O arquivo tem {Tamanho(escolhido.Size)} e o limite é {Tamanho(LimiteDeArquivo)}.";
+            _arquivo = null;
+            return;
+        }
+
+        _arquivo = escolhido;
+    }
+
+    private void TirarArquivo()
+    {
+        _arquivo = null;
+        _erro = null;
+    }
+
     private async Task Enviar()
     {
         var texto = _texto.Trim();
 
-        if (string.IsNullOrEmpty(texto) || Desabilitado)
+        if (Desabilitado || _enviandoArquivo || (string.IsNullOrEmpty(texto) && _arquivo is null))
         {
             return;
         }
-
-        _texto = string.Empty;
 
         _pararDeDigitar?.Dispose();
         _pararDeDigitar = null;
@@ -101,9 +168,67 @@
             await AoDigitar.InvokeAsync(false);
         }
 
-        await AoEnviar.InvokeAsync(texto);
+        if (_arquivo is { } arquivo && AoEnviarArquivo is not null)
+        {
+            await EnviarArquivoAsync(arquivo, texto);
+        }
+        else if (!string.IsNullOrEmpty(texto))
+        {
+            _texto = string.Empty;
+            await AoEnviar.InvokeAsync(texto);
+        }
+
         await _campo.FocusAsync();
     }
+
+    /// <summary>
+    /// Sobe o arquivo escolhido, mantendo o que o usuário digitou caso falhe.
+    /// </summary>
+    /// <remarks>
+    /// Ao contrário da mensagem de texto, que some do campo na hora porque a fila garante a
+    /// entrega, o anexo só limpa depois de o servidor confirmar. Sem rede não há upload, e
+    /// apagar a escolha do usuário o obrigaria a procurar o arquivo de novo.
+    /// </remarks>
+    private async Task EnviarArquivoAsync(IBrowserFile arquivo, string legenda)
+    {
+        _enviandoArquivo = true;
+        _erro = null;
+
+        try
+        {
+            await using var conteudo = arquivo.OpenReadStream(LimiteDeArquivo);
+
+            var erro = await AoEnviarArquivo!(new ArquivoEscolhido(
+                arquivo.Name,
+
+                // Vazio quando o navegador não reconhece a extensão. O servidor trata isso
+                // como arquivo comum, que é o desfecho seguro.
+                arquivo.ContentType ?? string.Empty,
+                arquivo.Size,
+                conteudo,
+                legenda));
+
+            if (erro is not null)
+            {
+                _erro = erro;
+                return;
+            }
+
+            _texto = string.Empty;
+            _arquivo = null;
+        }
+        finally
+        {
+            _enviandoArquivo = false;
+        }
+    }
+
+    private static string Tamanho(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):0.#} MB",
+    };
 
     public void Dispose() => _pararDeDigitar?.Dispose();
 }

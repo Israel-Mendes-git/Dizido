@@ -1,0 +1,65 @@
+@* Um anexo dentro do balão: prévia se for imagem, cartão com nome e tamanho se não for. *@
+
+@if (Anexo.Kind == "Image")
+{
+    <a class="dz-anexo-imagem"
+       href="@Anexo.Url"
+       target="_blank"
+       rel="noopener noreferrer"
+       style="@Proporcao"
+       title="Abrir @Anexo.FileName">
+        @* A miniatura, e não a original: a lista pode ter dezenas de fotos, e baixar todas
+           em tamanho cheio para exibi-las com 320 px de largura torraria a franquia de dados
+           de quem está no celular. A original abre ao clicar. *@
+        <img src="@(Anexo.ThumbnailUrl ?? Anexo.Url)"
+             alt="@Anexo.FileName"
+             loading="lazy"
+             @onerror="Renovar" />
+    </a>
+}
+else
+{
+    <a class="dz-anexo-arquivo" href="@Anexo.Url" download="@Anexo.FileName" title="Baixar @Anexo.FileName">
+        <span class="dz-anexo-arquivo__icone" aria-hidden="true">📎</span>
+
+        <span class="dz-anexo-arquivo__texto">
+            <span class="dz-anexo-arquivo__nome">@Anexo.FileName</span>
+            <span class="dz-anexo-arquivo__tamanho">@Tamanho</span>
+        </span>
+    </a>
+}
+
+@code {
+    [Parameter, EditorRequired] public AttachmentResponse Anexo { get; set; } = null!;
+
+    /// <summary>
+    /// Chamado quando a URL assinada expirou e a imagem não carregou.
+    /// </summary>
+    /// <remarks>
+    /// A URL vale por 30 minutos. Uma conversa deixada aberta a tarde inteira acabaria com
+    /// imagens quebradas se não houvesse este caminho de volta.
+    /// </remarks>
+    [Parameter] public EventCallback<Guid> AoExpirar { get; set; }
+
+    /// <summary>
+    /// Reserva o espaço do balão antes de a imagem chegar.
+    /// </summary>
+    /// <remarks>
+    /// Sem isto o fluxo da conversa "pula" a cada foto que termina de carregar, e quem estava
+    /// lendo perde a linha. Com a proporção declarada em CSS, o navegador já sabe o formato do
+    /// buraco que precisa deixar. É o mesmo motivo de as dimensões virem no DTO.
+    /// </remarks>
+    private string? Proporcao =>
+        Anexo is { Width: > 0, Height: > 0 }
+            ? $"aspect-ratio: {Anexo.Width} / {Anexo.Height};"
+            : null;
+
+    private string Tamanho => Anexo.SizeBytes switch
+    {
+        < 1024 => $"{Anexo.SizeBytes} B",
+        < 1024 * 1024 => $"{Anexo.SizeBytes / 1024.0:0.#} KB",
+        _ => $"{Anexo.SizeBytes / (1024.0 * 1024.0):0.#} MB",
+    };
+
+    private Task Renovar() => AoExpirar.InvokeAsync(Anexo.Id);
+}

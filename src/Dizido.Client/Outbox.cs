@@ -3,11 +3,22 @@ using System.Text.Json;
 namespace Dizido.Client;
 
 /// <summary>Uma mensagem escrita pelo usuário que ainda não foi confirmada pelo servidor.</summary>
+/// <param name="AttachmentId">
+/// O anexo, quando a mensagem leva um. Só o identificador — os bytes já estão no storage
+/// antes de a mensagem entrar aqui. Guardar o arquivo na fila seria inviável: o
+/// <c>localStorage</c> tem cerca de 5 MB no total, e Base64 ainda infla o conteúdo em um terço.
+/// <para>
+/// A consequência é assumida: anexar exige estar online <b>naquele momento</b>. Depois que o
+/// upload termina, a mensagem em si vira um item de fila comum e ganha toda a resiliência da
+/// Fase 5 — reenvio, backoff, sobreviver a fechar o navegador.
+/// </para>
+/// </param>
 public sealed record ItemDaFila(
     Guid ConversationId,
     Guid ClientMessageId,
     string Body,
     DateTimeOffset CriadaEm,
+    Guid? AttachmentId = null,
     int Tentativas = 0);
 
 /// <summary>Onde a fila de saída é guardada. Abstraído para o Domain do cliente não conhecer o navegador.</summary>

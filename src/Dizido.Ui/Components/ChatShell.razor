@@ -66,7 +66,8 @@ else
                                TemMaisAntigas="Store.TemMaisAntigas(ativa)"
                                CarregandoMaisAntigas="Store.CarregandoMaisAntigas"
                                AoCarregarMaisAntigas="() => Store.CarregarMaisAntigasAsync(ativa)"
-                               AoReenviar="Store.ReenviarAsync">
+                               AoReenviar="Store.ReenviarAsync"
+                               AoExpirarAnexo="RenovarAnexo">
                     <Acoes>
                         @if (ConversaAtivaEhGrupo)
                         {
@@ -81,6 +82,7 @@ else
                    ponto da fila de saída: a mensagem entra na fila e sai sozinha quando a
                    rede voltar, mesmo que o usuário feche o navegador antes disso. *@
                 <MessageComposer AoEnviar="Enviar"
+                                 AoEnviarArquivo="EnviarArquivo"
                                  AoDigitar="d => Conexao.SetTypingAsync(ativa, d)" />
 
                 @if (_painelGrupo && ConversaAtivaObj is { } grupo && ConversaAtivaEhGrupo)
@@ -275,6 +277,35 @@ else
         if (Store.ConversaAtiva is { } ativa)
         {
             await Store.EnviarAsync(ativa, texto);
+        }
+    }
+
+    private async Task<string?> EnviarArquivo(MessageComposer.ArquivoEscolhido arquivo)
+    {
+        if (Store.ConversaAtiva is not { } ativa)
+        {
+            return "Nenhuma conversa aberta.";
+        }
+
+        return await Store.EnviarArquivoAsync(
+            ativa, arquivo.Legenda, arquivo.Nome, arquivo.ContentType, arquivo.Conteudo, arquivo.Tamanho);
+    }
+
+    /// <summary>
+    /// Pede URLs novas para um anexo cuja assinatura expirou e recoloca na mensagem.
+    /// </summary>
+    /// <remarks>
+    /// Disparado pelo <c>onerror</c> da imagem. É o caminho de volta de quem deixou a conversa
+    /// aberta mais tempo do que a URL vale.
+    /// </remarks>
+    private async Task RenovarAnexo(Guid anexoId)
+    {
+        var novo = await Api.RefreshAttachmentAsync(anexoId);
+
+        if (novo is not null)
+        {
+            Store.AtualizarAnexo(novo);
+            StateHasChanged();
         }
     }
 

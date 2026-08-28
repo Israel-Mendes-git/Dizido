@@ -61,7 +61,8 @@
                            Mensagem="mensagem"
                            EhMinha="@(mensagem.Dados.SenderId == MeuId)"
                            MostrarAutor="mostrarAutor"
-                           AoReenviar="AoReenviar" />
+                           AoReenviar="AoReenviar"
+                           AoExpirarAnexo="AoExpirarAnexo" />
         }
     </div>
 
@@ -102,6 +103,9 @@
     [Parameter] public EventCallback AoCarregarMaisAntigas { get; set; }
 
     [Parameter] public EventCallback<MensagemNaTela> AoReenviar { get; set; }
+
+    /// <summary>Repassado ao balão: a URL assinada de um anexo expirou e precisa ser renovada.</summary>
+    [Parameter] public EventCallback<Guid> AoExpirarAnexo { get; set; }
 
     private string TextoDigitando => Digitando.Count == 1
         ? $"{Digitando[0]} está digitando"

@@ -16,7 +16,16 @@
             <div class="dz-bubble__autor">@Mensagem.Dados.SenderDisplayName</div>
         }
 
-        <div class="dz-bubble__texto">@Mensagem.Dados.Body</div>
+        @if (Mensagem.Dados.Attachment is { } anexo)
+        {
+            <AttachmentView Anexo="anexo" AoExpirar="AoExpirarAnexo" />
+        }
+
+        @* Com anexo, o corpo é legenda e costuma vir vazio — não vale ocupar espaço. *@
+        @if (!string.IsNullOrEmpty(Mensagem.Dados.Body))
+        {
+            <div class="dz-bubble__texto">@Mensagem.Dados.Body</div>
+        }
 
         <div class="dz-bubble__rodape">
             @if (Mensagem.Dados.EditedAt is not null)
@@ -53,6 +62,9 @@
     [Parameter] public bool MostrarAutor { get; set; } = true;
 
     [Parameter] public EventCallback<MensagemNaTela> AoReenviar { get; set; }
+
+    /// <summary>Repassa o pedido de renovar a URL assinada de um anexo que expirou.</summary>
+    [Parameter] public EventCallback<Guid> AoExpirarAnexo { get; set; }
 
     // A convenção que todo mundo já conhece de outros aplicativos: um traço para "saindo",
     // um tique para "o servidor recebeu", dois para "todos leram". Inventar símbolos novos
