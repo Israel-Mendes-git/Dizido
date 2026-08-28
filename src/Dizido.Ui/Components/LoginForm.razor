@@ -1,0 +1,112 @@
+@* Login e registro na mesma tela, alternando por uma aba. *@
+
+<div class="dz-login">
+    <div class="dz-login__cartao">
+        <h1 class="dz-login__marca">Dizido</h1>
+
+        <div class="dz-login__abas">
+            <button type="button"
+                    class="@(_registrando ? null : "dz-login__aba--ativa")"
+                    @onclick="() => Alternar(false)">Entrar</button>
+            <button type="button"
+                    class="@(_registrando ? "dz-login__aba--ativa" : null)"
+                    @onclick="() => Alternar(true)">Criar conta</button>
+        </div>
+
+        <form @onsubmit="Enviar" @onsubmit:preventDefault>
+            @if (_registrando)
+            {
+                <label>
+                    Nome
+                    <input type="text" @bind="_nome" @bind:event="oninput"
+                           autocomplete="name" maxlength="40" />
+                </label>
+            }
+
+            <label>
+                Email
+                <input type="email" @bind="_email" @bind:event="oninput"
+                       autocomplete="username" />
+            </label>
+
+            <label>
+                Senha
+                @* autocomplete correto faz o gerenciador de senhas do navegador funcionar.
+                   "new-password" no registro, "current-password" no login — sem isso, ele
+                   ora não oferece salvar, ora preenche a senha errada. *@
+                <input type="password" @bind="_senha" @bind:event="oninput"
+                       autocomplete="@(_registrando ? "new-password" : "current-password")" />
+            </label>
+
+            @if (_registrando)
+            {
+                <p class="dz-login__dica">Pelo menos 10 caracteres.</p>
+            }
+
+            @if (_erro is not null)
+            {
+                <p class="dz-login__erro" role="alert">@_erro</p>
+            }
+
+            <button type="submit" class="dz-botao dz-botao--principal" disabled="@_ocupado">
+                @(_ocupado ? "aguarde…" : _registrando ? "Criar conta" : "Entrar")
+            </button>
+        </form>
+    </div>
+</div>
+
+@code {
+    private bool _registrando;
+    private bool _ocupado;
+    private string _nome = string.Empty;
+    private string _email = string.Empty;
+    private string _senha = string.Empty;
+    private string? _erro;
+
+    [Parameter, EditorRequired] public DizidoApiClient Api { get; set; } = null!;
+
+    [Parameter] public EventCallback AoAutenticar { get; set; }
+
+    private void Alternar(bool registrando)
+    {
+        _registrando = registrando;
+        _erro = null;
+    }
+
+    private async Task Enviar()
+    {
+        if (_ocupado)
+        {
+            return;
+        }
+
+        _ocupado = true;
+        _erro = null;
+
+        try
+        {
+            var (auth, erro) = _registrando
+                ? await Api.RegisterAsync(_email.Trim(), _senha, _nome.Trim())
+                : await Api.LoginAsync(_email.Trim(), _senha);
+
+            if (auth is null)
+            {
+                _erro = erro ?? "Não foi possível continuar.";
+                return;
+            }
+
+            // A senha some da memória do componente assim que deixa de ser necessária.
+            _senha = string.Empty;
+
+            await AoAutenticar.InvokeAsync();
+        }
+        catch (HttpRequestException)
+        {
+            _erro = "Não consegui falar com o servidor. Ele está no ar?";
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+}

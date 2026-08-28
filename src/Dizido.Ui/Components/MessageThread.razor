@@ -1,0 +1,140 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="dz-thread">
+    <header class="dz-thread__topo">
+        <Avatar Nome="@Titulo" />
+        <div class="dz-thread__identidade">
+            <div class="dz-thread__titulo">@Titulo</div>
+            <div class="dz-thread__sub">@Subtitulo</div>
+        </div>
+
+        @* O conteúdo das ações vem de fora: o componente pai já tem o estado e o handler,
+           e assim não há um EventCallback atravessando a fronteira só para abrir um painel. *@
+        @Acoes
+    </header>
+
+    <div class="dz-thread__rolagem" @ref="_rolagem" id="@_id">
+        @if (Carregando)
+        {
+            <p class="dz-vazio">carregando…</p>
+        }
+        else if (Mensagens.Count == 0)
+        {
+            <p class="dz-vazio">Nenhuma mensagem ainda. Diga alguma coisa.</p>
+        }
+
+        @if (TemMaisAntigas)
+        {
+            @* Carregar mais é manual, por botão, e não automático ao rolar até o topo.
+               Carregamento automático desloca o conteúdo sob o dedo do usuário no meio da
+               leitura — e num histórico longo dispara requisição atrás de requisição. *@
+            <button type="button" class="dz-thread__mais"
+                    disabled="@CarregandoMaisAntigas"
+                    @onclick="AoCarregarMaisAntigas">
+                @(CarregandoMaisAntigas ? "carregando…" : "carregar mensagens anteriores")
+            </button>
+        }
+
+        @for (var i = 0; i < Mensagens.Count; i++)
+        {
+            var mensagem = Mensagens[i];
+
+            if (mensagem.Dados.Kind == "System")
+            {
+                <SystemNotice @key="mensagem.Dados.Id" Mensagem="mensagem.Dados" MeuId="MeuId" />
+                continue;
+            }
+
+            var anterior = i > 0 ? Mensagens[i - 1] : null;
+
+            @* Agrupa mensagens seguidas do mesmo autor: repetir nome e avatar a cada linha
+               polui a leitura quando alguém manda quatro mensagens em sequência.
+               Um aviso do sistema no meio quebra o agrupamento — o que é correto, porque
+               ele separa visualmente os dois blocos. *@
+            var mostrarAutor = anterior is null
+                || anterior.Dados.Kind == "System"
+                || anterior.Dados.SenderId != mensagem.Dados.SenderId
+                || (mensagem.Dados.SentAt - anterior.Dados.SentAt) > TimeSpan.FromMinutes(5);
+
+            <MessageBubble @key="mensagem.Dados.ClientMessageId"
+                           Mensagem="mensagem"
+                           EhMinha="@(mensagem.Dados.SenderId == MeuId)"
+                           MostrarAutor="mostrarAutor"
+                           AoReenviar="AoReenviar" />
+        }
+    </div>
+
+    @if (Digitando.Any())
+    {
+        <div class="dz-digitando">
+            <span class="dz-digitando__pontos"><i></i><i></i><i></i></span>
+            @TextoDigitando
+        </div>
+    }
+</div>
+
+@code {
+    private readonly string _id = $"thread-{Guid.NewGuid():N}";
+    private ElementReference _rolagem;
+    private IJSObjectReference? _modulo;
+    private int _ultimaContagem;
+
+    [Parameter, EditorRequired] public IReadOnlyList<MensagemNaTela> Mensagens { get; set; } = [];
+
+    [Parameter] public Guid MeuId { get; set; }
+
+    [Parameter] public string Titulo { get; set; } = string.Empty;
+
+    [Parameter] public string Subtitulo { get; set; } = string.Empty;
+
+    /// <summary>Botões extras no cabeçalho, fornecidos pelo componente pai.</summary>
+    [Parameter] public RenderFragment? Acoes { get; set; }
+
+    [Parameter] public bool Carregando { get; set; }
+
+    [Parameter] public IReadOnlyList<string> Digitando { get; set; } = [];
+
+    [Parameter] public bool TemMaisAntigas { get; set; }
+
+    [Parameter] public bool CarregandoMaisAntigas { get; set; }
+
+    [Parameter] public EventCallback AoCarregarMaisAntigas { get; set; }
+
+    [Parameter] public EventCallback<MensagemNaTela> AoReenviar { get; set; }
+
+    private string TextoDigitando => Digitando.Count == 1
+        ? $"{Digitando[0]} está digitando"
+        : $"{string.Join(", ", Digitando)} estão digitando";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/Dizido.Ui/rolagem.js");
+        }
+
+        // Só rola quando chegou mensagem nova, não a cada redesenho — senão o app arrastaria
+        // a tela do usuário para baixo enquanto ele lê o histórico.
+        if (_modulo is not null && Mensagens.Count != _ultimaContagem)
+        {
+            _ultimaContagem = Mensagens.Count;
+            await _modulo.InvokeVoidAsync("rolarSeNoFim", _id);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_modulo is not null)
+        {
+            try
+            {
+                await _modulo.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // A página já foi embora; não há módulo para descartar.
+            }
+        }
+    }
+}

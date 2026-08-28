@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dizido</title>
+    <base href="/" />
+    <!-- O CSS vem do Razor Class Library. O prefixo _content/<Assembly>/ é como o Blazor
+         expõe os arquivos estáticos de uma RCL — assim o futuro app desktop usa exatamente
+         o mesmo arquivo, sem copiar nada. -->
+    <link rel="stylesheet" href="_content/Dizido.Ui/dizido.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+
+    <!-- A linha <link href="Dizido.Web.styles.css"> saiu daqui: esse é o bundle de CSS
+         isolation (arquivos Componente.razor.css) e só é gerado quando existe algum.
+         Todo o estilo do Dizido está no dizido.css acima. Se um dia usarmos CSS isolation,
+         a linha volta — mantê-la agora só produz um 404 no console a cada carregamento. -->
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+
+</html>

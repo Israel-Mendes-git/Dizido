@@ -1,0 +1,362 @@
+@implements IDisposable
+@inject DizidoApiClient Api
+@inject ChatStore Store
+@inject ChatConnection Conexao
+@inject DizidoSession Sessao
+
+@if (!Sessao.IsAuthenticated)
+{
+    <LoginForm Api="Api" AoAutenticar="AoAutenticar" />
+}
+else
+{
+    <div class="dz-app">
+        <ConversationList Conversas="Store.Conversas"
+                          Ativa="Store.ConversaAtiva"
+                          Sessao="Sessao"
+                          EstaOnline="Store.EstaOnline"
+                          AoSelecionar="Selecionar"
+                          AoNovaConversa="AbrirNovaConversa"
+                          AoNovoGrupo="() => _painel = Painel.NovoGrupo"
+                          AoSair="Sair" />
+
+        <main class="dz-principal">
+            @if (_painel == Painel.NovaConversa)
+            {
+                <div class="dz-painel">
+                    <h2>Com quem você quer falar?</h2>
+                    @if (_usuarios.Count(u => u.Id != Sessao.UserId) == 0)
+                    {
+                        <p class="dz-vazio">Ninguém mais por aqui ainda.</p>
+                    }
+                    @foreach (var usuario in _usuarios.Where(u => u.Id != Sessao.UserId))
+                    {
+                        <button type="button" @key="usuario.Id" class="dz-painel__item"
+                                @onclick="() => AbrirDireta(usuario.Id)">
+                            <Avatar Nome="@usuario.DisplayName" Online="@Store.EstaOnline(usuario.Id)" />
+                            <span>@usuario.DisplayName</span>
+                        </button>
+                    }
+                    <button type="button" class="dz-botao-texto" @onclick="() => _painel = Painel.Nenhum">
+                        cancelar
+                    </button>
+                </div>
+            }
+            else if (_painel == Painel.NovoGrupo)
+            {
+                <div class="dz-painel">
+                    <h2>Nome do grupo</h2>
+                    <form @onsubmit="CriarGrupo" @onsubmit:preventDefault>
+                        <input type="text" @bind="_tituloGrupo" @bind:event="oninput" maxlength="60" />
+                        <button type="submit" class="dz-botao dz-botao--principal"
+                                disabled="@string.IsNullOrWhiteSpace(_tituloGrupo)">criar</button>
+                        <button type="button" class="dz-botao-texto"
+                                @onclick="() => _painel = Painel.Nenhum">cancelar</button>
+                    </form>
+                </div>
+            }
+            else if (Store.ConversaAtiva is { } ativa)
+            {
+                <MessageThread Mensagens="Store.MensagensDe(ativa)"
+                               MeuId="@(Sessao.UserId ?? Guid.Empty)"
+                               Titulo="@TituloDaAtiva"
+                               Subtitulo="@SubtituloDaAtiva"
+                               Carregando="Store.CarregandoHistorico"
+                               Digitando="NomesDigitando(ativa)"
+                               TemMaisAntigas="Store.TemMaisAntigas(ativa)"
+                               CarregandoMaisAntigas="Store.CarregandoMaisAntigas"
+                               AoCarregarMaisAntigas="() => Store.CarregarMaisAntigasAsync(ativa)"
+                               AoReenviar="Store.ReenviarAsync">
+                    <Acoes>
+                        @if (ConversaAtivaEhGrupo)
+                        {
+                            <button type="button" class="dz-botao" @onclick="AbrirPainelDoGrupo">
+                                participantes
+                            </button>
+                        }
+                    </Acoes>
+                </MessageThread>
+
+                @* O campo NÃO é desabilitado quando a conexão cai. Escrever offline é o
+                   ponto da fila de saída: a mensagem entra na fila e sai sozinha quando a
+                   rede voltar, mesmo que o usuário feche o navegador antes disso. *@
+                <MessageComposer AoEnviar="Enviar"
+                                 AoDigitar="d => Conexao.SetTypingAsync(ativa, d)" />
+
+                @if (_painelGrupo && ConversaAtivaObj is { } grupo && ConversaAtivaEhGrupo)
+                {
+                    <GroupPanel Conversa="grupo"
+                                MeuId="@(Sessao.UserId ?? Guid.Empty)"
+                                Usuarios="_usuarios"
+                                EstaOnline="Store.EstaOnline"
+                                Api="Api"
+                                AoMudar="RecarregarConversas"
+                                AoFechar="() => _painelGrupo = false"
+                                AoSairDoGrupo="SairDoGrupo" />
+                }
+            }
+            else
+            {
+                <div class="dz-vazio dz-vazio--centro">
+                    <h2>Dizido</h2>
+                    <p>Escolha uma conversa à esquerda para começar.</p>
+                </div>
+            }
+
+            @if (_estadoConexao != HubConnectionState.Connected || Store.Pendentes > 0)
+            {
+                @* Estado de conexão sempre visível: um app de mensagens que parou de receber
+                   sem avisar é pior do que um que avisa. E se há mensagens na fila, o usuário
+                   precisa saber que elas ainda não saíram. *@
+                <div class="dz-conexao" role="status">
+                    @if (_estadoConexao == HubConnectionState.Reconnecting)
+                    {
+                        <text>reconectando…</text>
+                    }
+                    else if (_estadoConexao != HubConnectionState.Connected)
+                    {
+                        <text>sem conexão</text>
+                    }
+
+                    @if (Store.Pendentes > 0)
+                    {
+                        <text>
+                            @(_estadoConexao == HubConnectionState.Connected ? null : " · ")
+                            @Store.Pendentes @(Store.Pendentes == 1 ? "mensagem na fila" : "mensagens na fila")
+                        </text>
+                    }
+                </div>
+            }
+        </main>
+    </div>
+}
+
+@code {
+    private enum Painel { Nenhum, NovaConversa, NovoGrupo }
+
+    private Painel _painel = Painel.Nenhum;
+    private bool _painelGrupo;
+    private string _tituloGrupo = string.Empty;
+    private IReadOnlyList<UserResponse> _usuarios = [];
+    private HubConnectionState _estadoConexao = HubConnectionState.Disconnected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Sessao.Changed += AoMudarSessao;
+        Store.Changed += AoMudarEstado;
+        Conexao.StateChanged += AoMudarConexao;
+
+        // Tenta restaurar a sessão pelo cookie de refresh antes de mostrar a tela de login.
+        // Sem isto, recarregar a página exigiria digitar a senha de novo — o token vive só
+        // em memória, de propósito.
+        if (await Api.TryRestoreSessionAsync())
+        {
+            await IniciarAsync();
+        }
+    }
+
+    private async Task AoAutenticar() => await IniciarAsync();
+
+    private async Task IniciarAsync()
+    {
+        Store.Inscrever();
+        await Conexao.StartAsync();
+
+        // IniciarAsync carrega as conversas E retoma a fila de saída que sobreviveu ao
+        // fechamento do navegador — mensagens escritas offline saem sozinhas agora.
+        await Store.IniciarAsync();
+
+        _usuarios = await Api.GetUsersAsync();
+    }
+
+    /// <summary>
+    /// Abre o painel de nova conversa recarregando a lista de usuários.
+    /// </summary>
+    /// <remarks>
+    /// Carregar a lista só uma vez no login parece suficiente até você testar com duas pessoas:
+    /// quem entrou primeiro nunca enxerga quem se cadastrou depois, e a única saída é recarregar
+    /// a página. Buscar no momento de abrir o painel custa uma requisição e resolve.
+    /// (O jeito definitivo é uma busca por nome no servidor — com mil usuários, listar todos
+    /// deixa de fazer sentido. Fica para quando existirem mil usuários.)
+    /// </remarks>
+    private async Task AbrirNovaConversa()
+    {
+        _painel = Painel.NovaConversa;
+        _usuarios = await Api.GetUsersAsync();
+    }
+
+    /// <summary>
+    /// Abre o painel do grupo, também com a lista de usuários fresca.
+    /// </summary>
+    /// <remarks>
+    /// Mesma armadilha de <see cref="AbrirNovaConversa"/>: sem recarregar, o dono de um grupo
+    /// criado ontem não consegue adicionar quem se cadastrou hoje — o nome simplesmente não
+    /// aparece entre os candidatos, sem erro nenhum que explique por quê.
+    /// </remarks>
+    /// <summary>
+    /// Abre o painel do grupo imediatamente e atualiza a lista de candidatos em segundo plano.
+    /// </summary>
+    /// <remarks>
+    /// O método é síncrono de propósito: abrir um painel é mudança de estado local e não tem
+    /// por que ficar esperando a rede. A lista de candidatos chega depois, em segundo plano.
+    /// </remarks>
+    private void AbrirPainelDoGrupo()
+    {
+        _painelGrupo = true;
+
+        _ = AtualizarUsuariosAsync();
+    }
+
+    private async Task AtualizarUsuariosAsync()
+    {
+        try
+        {
+            _usuarios = await Api.GetUsersAsync();
+            StateHasChanged();
+        }
+        catch (Exception)
+        {
+            // Sem a lista, o painel ainda serve para ver membros, cargos e sair do grupo.
+            // Nunca deixar escapar de um "fire and forget": aqui não há quem observe a Task.
+        }
+    }
+
+    private ConversationResponse? ConversaAtivaObj =>
+        Store.Conversas.FirstOrDefault(c => c.Id == Store.ConversaAtiva);
+
+    private bool ConversaAtivaEhGrupo => ConversaAtivaObj?.Type == "Group";
+
+    private async Task Selecionar(Guid conversationId)
+    {
+        _painel = Painel.Nenhum;
+        _painelGrupo = false;
+        await Store.AbrirConversaAsync(conversationId);
+    }
+
+    /// <summary>Recarrega a lista após uma alteração no grupo (nome, membros, cargos).</summary>
+    private async Task RecarregarConversas()
+    {
+        await Store.CarregarConversasAsync();
+        _usuarios = await Api.GetUsersAsync();
+    }
+
+    private async Task SairDoGrupo()
+    {
+        _painelGrupo = false;
+        await Store.SairDaConversaAtivaAsync();
+        await Store.CarregarConversasAsync();
+    }
+
+    private async Task AbrirDireta(Guid outroUsuario)
+    {
+        var conversa = await Api.OpenDirectAsync(outroUsuario);
+
+        if (conversa is not null)
+        {
+            Store.RegistrarConversa(conversa);
+            await Selecionar(conversa.Id);
+        }
+    }
+
+    private async Task CriarGrupo()
+    {
+        var conversa = await Api.CreateGroupAsync(_tituloGrupo.Trim());
+
+        if (conversa is not null)
+        {
+            Store.RegistrarConversa(conversa);
+            _tituloGrupo = string.Empty;
+            await Selecionar(conversa.Id);
+        }
+    }
+
+    private async Task Enviar(string texto)
+    {
+        if (Store.ConversaAtiva is { } ativa)
+        {
+            await Store.EnviarAsync(ativa, texto);
+        }
+    }
+
+    private async Task Sair()
+    {
+        await Conexao.StopAsync();
+        Store.Desinscrever();
+        await Api.LogoutAsync();
+    }
+
+    private string TituloDaAtiva
+    {
+        get
+        {
+            var conversa = Store.Conversas.FirstOrDefault(c => c.Id == Store.ConversaAtiva);
+
+            if (conversa is null)
+            {
+                return string.Empty;
+            }
+
+            return conversa.Title
+                   ?? conversa.Members.FirstOrDefault(m => m.UserId != Sessao.UserId)?.DisplayName
+                   ?? "Conversa";
+        }
+    }
+
+    private string SubtituloDaAtiva
+    {
+        get
+        {
+            var conversa = Store.Conversas.FirstOrDefault(c => c.Id == Store.ConversaAtiva);
+
+            if (conversa is null)
+            {
+                return string.Empty;
+            }
+
+            if (conversa.Type == "Group")
+            {
+                return string.Join(", ", conversa.Members.Select(m => m.DisplayName));
+            }
+
+            var outro = conversa.Members.FirstOrDefault(m => m.UserId != Sessao.UserId);
+
+            return outro is not null && Store.EstaOnline(outro.UserId) ? "online" : "offline";
+        }
+    }
+
+    private IReadOnlyList<string> NomesDigitando(Guid conversationId)
+    {
+        var conversa = Store.Conversas.FirstOrDefault(c => c.Id == conversationId);
+
+        if (conversa is null)
+        {
+            return [];
+        }
+
+        return [.. Store.QuemEstaDigitando(conversationId, DateTimeOffset.UtcNow)
+            .Select(id => conversa.Members.FirstOrDefault(m => m.UserId == id)?.DisplayName)
+            .Where(nome => nome is not null)
+            .Select(nome => nome!)];
+    }
+
+    // Eventos do SignalR chegam numa thread que não é a de renderização do Blazor.
+    // Chamar StateHasChanged direto dali não redesenha nada (e pode lançar); InvokeAsync
+    // devolve a execução para o contexto correto. Este é O erro clássico de Blazor + SignalR.
+    private void AoMudarEstado() => InvokeAsync(StateHasChanged);
+
+    private void AoMudarSessao() => InvokeAsync(StateHasChanged);
+
+    private void AoMudarConexao(HubConnectionState estado)
+    {
+        _estadoConexao = estado;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Sessao.Changed -= AoMudarSessao;
+        Store.Changed -= AoMudarEstado;
+        Conexao.StateChanged -= AoMudarConexao;
+        Store.Desinscrever();
+    }
+}

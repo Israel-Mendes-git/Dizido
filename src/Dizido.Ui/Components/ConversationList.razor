@@ -1,0 +1,79 @@
+@* Coluna lateral com as conversas, ordenadas por atividade mais recente. *@
+
+<div class="dz-lista">
+    <header class="dz-lista__topo">
+        <div class="dz-lista__eu">
+            <Avatar Nome="@(Sessao.DisplayName ?? "?")" Online="true" />
+            <span>@Sessao.DisplayName</span>
+        </div>
+        <button type="button" class="dz-botao-texto" @onclick="AoSair">sair</button>
+    </header>
+
+    <div class="dz-lista__acoes">
+        <button type="button" class="dz-botao" @onclick="AoNovaConversa">+ conversa</button>
+        <button type="button" class="dz-botao" @onclick="AoNovoGrupo">+ grupo</button>
+    </div>
+
+    <nav class="dz-lista__itens">
+        @if (Conversas.Count == 0)
+        {
+            <p class="dz-vazio">Nenhuma conversa ainda.<br />Comece uma com o botão acima.</p>
+        }
+
+        @foreach (var conversa in Conversas)
+        {
+            var outro = Outro(conversa);
+            var titulo = conversa.Title ?? outro?.DisplayName ?? "Conversa";
+
+            @* @key é obrigatório aqui: sem ele, o Blazor reaproveita os elementos pela POSIÇÃO
+               ao reordenar a lista. Como uma conversa que recebe mensagem pula para o topo,
+               os avatares e nomes ficariam trocados entre as linhas. *@
+            <button type="button"
+                    @key="conversa.Id"
+                    class="dz-lista__item @(conversa.Id == Ativa ? "dz-lista__item--ativa" : null)"
+                    @onclick="() => AoSelecionar.InvokeAsync(conversa.Id)">
+                <Avatar Nome="@titulo" Online="@(outro is not null && EstaOnline(outro.UserId))" />
+                <div class="dz-lista__texto">
+                    <span class="dz-lista__titulo">@titulo</span>
+                    <span class="dz-lista__sub">@Legenda(conversa)</span>
+                </div>
+            </button>
+        }
+    </nav>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ConversationResponse> Conversas { get; set; } = [];
+
+    [Parameter] public Guid? Ativa { get; set; }
+
+    [Parameter, EditorRequired] public DizidoSession Sessao { get; set; } = null!;
+
+    [Parameter, EditorRequired] public Func<Guid, bool> EstaOnline { get; set; } = _ => false;
+
+    [Parameter] public EventCallback<Guid> AoSelecionar { get; set; }
+
+    [Parameter] public EventCallback AoNovaConversa { get; set; }
+
+    [Parameter] public EventCallback AoNovoGrupo { get; set; }
+
+    [Parameter] public EventCallback AoSair { get; set; }
+
+    private static string Legenda(ConversationResponse conversa)
+    {
+        if (conversa.Type != "Group")
+        {
+            return "conversa direta";
+        }
+
+        // "1 participantes" é o tipo de detalhe que denuncia software feito às pressas.
+        var total = conversa.Members.Count;
+
+        return total == 1 ? "só você" : $"{total} participantes";
+    }
+
+    private ConversationMemberResponse? Outro(ConversationResponse conversa) =>
+        conversa.Type == "Direct"
+            ? conversa.Members.FirstOrDefault(m => m.UserId != Sessao.UserId)
+            : null;
+}

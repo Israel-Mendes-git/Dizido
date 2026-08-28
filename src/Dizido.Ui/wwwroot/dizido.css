@@ -1,0 +1,705 @@
+/* Dizido — folha de estilo única dos componentes.
+   Sem framework CSS: layout de chat (coluna que cresce de baixo para cima, rolagem
+   ancorada) é mais direto em grid/flex puro do que lutando com um grid de 12 colunas. */
+
+:root {
+    --dz-fundo: #0f1216;
+    --dz-painel: #161b22;
+    --dz-painel-2: #1c232c;
+    --dz-borda: #262d38;
+    --dz-texto: #e6edf3;
+    --dz-texto-fraco: #8b98a5;
+    --dz-acento: #3b82f6;
+    --dz-acento-escuro: #2563eb;
+    --dz-erro: #f87171;
+    --dz-online: #22c55e;
+    --dz-raio: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--dz-fundo);
+    color: var(--dz-texto);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+#app { height: 100%; }
+
+button { font: inherit; cursor: pointer; }
+
+/* ---------- layout geral ---------- */
+
+.dz-app {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.dz-principal {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;      /* sem isto, uma mensagem longa estica a coluna e quebra o layout */
+    position: relative;
+}
+
+/* ---------- avatar ---------- */
+
+.dz-avatar {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    user-select: none;
+}
+
+.dz-avatar--online::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--dz-online);
+    border: 2px solid var(--dz-painel);
+}
+
+/* ---------- lista de conversas ---------- */
+
+.dz-lista {
+    display: flex;
+    flex-direction: column;
+    background: var(--dz-painel);
+    border-right: 1px solid var(--dz-borda);
+    min-height: 0;
+}
+
+.dz-lista__topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--dz-borda);
+}
+
+.dz-lista__eu {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    min-width: 0;
+}
+
+.dz-lista__eu span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dz-lista__acoes {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+}
+
+.dz-lista__itens {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.dz-lista__item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 16px;
+    background: none;
+    border: 0;
+    color: inherit;
+    text-align: left;
+}
+
+.dz-lista__item:hover { background: var(--dz-painel-2); }
+
+.dz-lista__item--ativa {
+    background: var(--dz-painel-2);
+    box-shadow: inset 3px 0 0 var(--dz-acento);
+}
+
+.dz-lista__texto {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.dz-lista__titulo {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dz-lista__sub {
+    font-size: 12.5px;
+    color: var(--dz-texto-fraco);
+}
+
+/* ---------- thread ---------- */
+
+.dz-thread {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.dz-thread__topo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--dz-borda);
+    background: var(--dz-painel);
+}
+
+.dz-thread__titulo { font-weight: 600; }
+
+.dz-thread__sub {
+    font-size: 12.5px;
+    color: var(--dz-texto-fraco);
+}
+
+.dz-thread__rolagem {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-height: 0;
+
+    /* Mantém a posição de leitura quando conteúdo é inserido acima (carregar histórico). */
+    overflow-anchor: auto;
+}
+
+/* Conversa cresce de baixo para cima: com poucas mensagens elas ficam junto ao campo de
+   digitação, não penduradas no topo de uma área vazia.
+   `margin-top: auto` no primeiro filho, e não `justify-content: flex-end` no contêiner:
+   flex-end combinado com overflow torna o conteúdo que transborda inalcançável pela
+   rolagem em vários navegadores — o histórico antigo ficaria inacessível. */
+.dz-thread__rolagem > *:first-child { margin-top: auto; }
+
+/* ---------- balões ---------- */
+
+.dz-bubble-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    max-width: 100%;
+}
+
+.dz-bubble-row--minha { flex-direction: row-reverse; }
+
+.dz-bubble-espacador { width: 38px; flex: 0 0 38px; }
+
+.dz-bubble {
+    background: var(--dz-painel-2);
+    border-radius: var(--dz-raio);
+    padding: 8px 12px;
+    max-width: min(62ch, 70%);
+    word-wrap: break-word;
+    overflow-wrap: anywhere;   /* uma URL gigante não pode estourar o layout */
+}
+
+.dz-bubble--minha {
+    background: var(--dz-acento-escuro);
+}
+
+.dz-bubble--falhou {
+    background: #3b1d1d;
+    border: 1px solid var(--dz-erro);
+}
+
+.dz-bubble__autor {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--dz-texto-fraco);
+    margin-bottom: 2px;
+}
+
+.dz-bubble__texto { white-space: pre-wrap; }
+
+.dz-bubble__rodape {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--dz-texto-fraco);
+}
+
+.dz-bubble--minha .dz-bubble__rodape { color: #c7d9f7; }
+
+.dz-bubble__editada { font-style: italic; }
+
+.dz-bubble__reenviar {
+    margin-top: 6px;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--dz-erro);
+    font-size: 12px;
+    text-decoration: underline;
+}
+
+/* ---------- digitando ---------- */
+
+.dz-digitando {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 20px 6px;
+    font-size: 12.5px;
+    color: var(--dz-texto-fraco);
+    height: 22px;
+}
+
+.dz-digitando__pontos { display: inline-flex; gap: 3px; }
+
+.dz-digitando__pontos i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--dz-texto-fraco);
+    animation: dz-pulsa 1.2s infinite;
+}
+
+.dz-digitando__pontos i:nth-child(2) { animation-delay: .2s; }
+.dz-digitando__pontos i:nth-child(3) { animation-delay: .4s; }
+
+@keyframes dz-pulsa {
+    0%, 60%, 100% { opacity: .25; }
+    30%           { opacity: 1; }
+}
+
+/* Respeita quem desativou animações no sistema. */
+@media (prefers-reduced-motion: reduce) {
+    .dz-digitando__pontos i { animation: none; opacity: .6; }
+}
+
+/* ---------- composer ---------- */
+
+.dz-composer {
+    display: flex;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--dz-borda);
+    background: var(--dz-painel);
+}
+
+.dz-composer__campo {
+    flex: 1;
+    resize: none;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    color: inherit;
+    padding: 10px 12px;
+    font: inherit;
+    max-height: 140px;
+}
+
+.dz-composer__campo:focus {
+    outline: 2px solid var(--dz-acento);
+    outline-offset: -1px;
+}
+
+.dz-composer__enviar {
+    background: var(--dz-acento);
+    color: #fff;
+    border: 0;
+    border-radius: var(--dz-raio);
+    padding: 0 18px;
+}
+
+.dz-composer__enviar:disabled { opacity: .45; cursor: default; }
+
+/* ---------- botões ---------- */
+
+.dz-botao {
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    color: inherit;
+    padding: 7px 12px;
+}
+
+.dz-botao:hover { border-color: var(--dz-acento); }
+
+.dz-botao--principal {
+    background: var(--dz-acento);
+    border-color: var(--dz-acento);
+    color: #fff;
+}
+
+.dz-botao-texto {
+    background: none;
+    border: 0;
+    color: var(--dz-texto-fraco);
+    text-decoration: underline;
+    padding: 4px;
+}
+
+/* ---------- painéis e vazios ---------- */
+
+.dz-painel {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 460px;
+}
+
+.dz-painel input {
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    color: inherit;
+    padding: 10px 12px;
+    font: inherit;
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.dz-painel__item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--dz-painel);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    color: inherit;
+    padding: 10px 12px;
+    text-align: left;
+}
+
+.dz-painel__item:hover { border-color: var(--dz-acento); }
+
+.dz-vazio {
+    color: var(--dz-texto-fraco);
+    text-align: center;
+    padding: 30px;
+}
+
+.dz-vazio--centro {
+    margin: auto;
+}
+
+/* ---------- estado de conexão ---------- */
+
+.dz-conexao {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #43331a;
+    border: 1px solid #8a6d3b;
+    color: #f0c674;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+}
+
+/* ---------- login ---------- */
+
+.dz-login {
+    display: grid;
+    place-items: center;
+    height: 100vh;
+    padding: 20px;
+}
+
+.dz-login__cartao {
+    background: var(--dz-painel);
+    border: 1px solid var(--dz-borda);
+    border-radius: 14px;
+    padding: 28px;
+    width: min(380px, 100%);
+}
+
+.dz-login__marca {
+    margin: 0 0 18px;
+    text-align: center;
+    font-size: 28px;
+    letter-spacing: -0.5px;
+}
+
+.dz-login__abas {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 18px;
+}
+
+.dz-login__abas button {
+    flex: 1;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid var(--dz-borda);
+    color: var(--dz-texto-fraco);
+    padding: 8px;
+}
+
+.dz-login__aba--ativa {
+    color: var(--dz-texto) !important;
+    border-bottom-color: var(--dz-acento) !important;
+}
+
+.dz-login label {
+    display: block;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--dz-texto-fraco);
+}
+
+.dz-login input {
+    display: block;
+    width: 100%;
+    margin-top: 5px;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    color: var(--dz-texto);
+    padding: 10px 12px;
+    font: inherit;
+}
+
+.dz-login input:focus {
+    outline: 2px solid var(--dz-acento);
+    outline-offset: -1px;
+}
+
+.dz-login .dz-botao { width: 100%; padding: 11px; }
+
+.dz-login__dica {
+    font-size: 12px;
+    color: var(--dz-texto-fraco);
+    margin: -4px 0 12px;
+}
+
+.dz-login__erro {
+    background: #3b1d1d;
+    border: 1px solid var(--dz-erro);
+    color: #fca5a5;
+    border-radius: var(--dz-raio);
+    padding: 9px 12px;
+    font-size: 13px;
+    margin: 0 0 12px;
+}
+
+/* ---------- infraestrutura do Blazor ---------- */
+
+/* O #blazor-error-ui vive no index.html e é revelado pelo runtime quando uma exceção
+   não tratada escapa. Ele nasce visível no HTML e é o CSS que o esconde — sem esta
+   regra, a faixa "An unhandled error has occurred" aparece o tempo todo, mesmo sem erro
+   nenhum. (Foi o que aconteceu ao remover o app.css do template.) */
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: #43331a;
+    border-top: 1px solid #8a6d3b;
+    color: #f0c674;
+    padding: 12px 20px;
+    box-shadow: 0 -2px 12px rgb(0 0 0 / .4);
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    float: right;
+    padding: 0 8px;
+}
+
+/* Indicador de carga do WASM, antes de o app assumir a tela. */
+.loading-progress {
+    display: block;
+    width: 8rem;
+    height: 8rem;
+    margin: 20vh auto 1rem;
+}
+
+.loading-progress circle {
+    fill: none;
+    stroke: var(--dz-borda);
+    stroke-width: 0.5rem;
+    transform-origin: 50% 50%;
+    transform: rotate(-90deg);
+}
+
+.loading-progress circle:last-child {
+    stroke: var(--dz-acento);
+    stroke-dasharray: calc(var(--blazor-load-percentage, 0%) * 3.141) 500%;
+    transition: stroke-dasharray .05s ease-in-out;
+}
+
+.loading-progress-text {
+    text-align: center;
+    color: var(--dz-texto-fraco);
+    font-size: 13px;
+}
+
+.loading-progress-text::after {
+    content: "carregando " var(--blazor-load-percentage-text, "");
+}
+
+/* ---------- telas estreitas ---------- */
+
+@media (max-width: 760px) {
+    .dz-app { grid-template-columns: 1fr; }
+    .dz-lista { display: none; }
+}
+
+/* ---------- estados adicionais (Fase 5) ---------- */
+
+.dz-bubble__estado--lida { color: #7dd3fc; }
+
+.dz-thread__mais {
+    align-self: center;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: 999px;
+    color: var(--dz-texto-fraco);
+    padding: 5px 16px;
+    font-size: 12.5px;
+    margin-bottom: 8px;
+}
+
+.dz-thread__mais:hover:not(:disabled) { border-color: var(--dz-acento); }
+.dz-thread__mais:disabled { opacity: .5; cursor: default; }
+
+/* ---------- avisos do sistema (Fase 6) ---------- */
+
+.dz-aviso {
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgb(255 255 255 / .04);
+    border-radius: 999px;
+    padding: 4px 14px;
+    margin: 6px 0;
+    font-size: 12.5px;
+    color: var(--dz-texto-fraco);
+    text-align: center;
+}
+
+.dz-aviso time { opacity: .6; font-size: 11px; }
+
+/* ---------- painel do grupo ---------- */
+
+.dz-thread__identidade { flex: 1; min-width: 0; }
+
+.dz-grupo {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, 100%);
+    background: var(--dz-painel);
+    border-left: 1px solid var(--dz-borda);
+    overflow-y: auto;
+    padding: 16px;
+    z-index: 10;
+    box-shadow: -8px 0 24px rgb(0 0 0 / .3);
+}
+
+.dz-grupo__topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.dz-grupo__topo h2 { margin: 0; font-size: 17px; }
+
+.dz-grupo__bloco {
+    border-top: 1px solid var(--dz-borda);
+    padding: 14px 0;
+}
+
+.dz-grupo__bloco h3 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--dz-texto-fraco);
+}
+
+.dz-grupo label {
+    display: block;
+    font-size: 13px;
+    color: var(--dz-texto-fraco);
+    margin-bottom: 10px;
+}
+
+.dz-grupo input {
+    display: block;
+    width: 100%;
+    margin-top: 5px;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    color: var(--dz-texto);
+    padding: 9px 11px;
+    font: inherit;
+}
+
+.dz-grupo input:disabled { opacity: .6; }
+
+.dz-grupo__membro {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+}
+
+.dz-grupo__membro-texto {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.dz-grupo__membro-texto span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dz-grupo__membro-texto small { color: var(--dz-texto-fraco); font-size: 12px; }
+
+.dz-grupo__membro-acoes {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.dz-grupo__membro-acoes button { font-size: 12px; }
+
+.dz-perigo { color: var(--dz-erro) !important; border-color: var(--dz-erro) !important; }

@@ -1,0 +1,109 @@
+@implements IDisposable
+
+<form class="dz-composer" @onsubmit="Enviar" @onsubmit:preventDefault>
+    <textarea @ref="_campo"
+              class="dz-composer__campo"
+              rows="1"
+              placeholder="Escreva uma mensagem"
+              disabled="@Desabilitado"
+              @bind="_texto"
+              @bind:event="oninput"
+              @onkeydown="AoTeclar"></textarea>
+
+    <button type="submit" class="dz-composer__enviar"
+            disabled="@(Desabilitado || string.IsNullOrWhiteSpace(_texto))"
+            title="Enviar (Enter)">
+        Enviar
+    </button>
+</form>
+
+@code {
+    private string _texto = string.Empty;
+    private ElementReference _campo;
+    private Timer? _pararDeDigitar;
+    private bool _sinalizouDigitando;
+
+    [Parameter] public bool Desabilitado { get; set; }
+
+    [Parameter, EditorRequired] public EventCallback<string> AoEnviar { get; set; }
+
+    [Parameter] public EventCallback<bool> AoDigitar { get; set; }
+
+    /// <summary>
+    /// Enter envia; Shift+Enter quebra linha.
+    /// </summary>
+    /// <remarks>
+    /// É a convenção de todo app de mensagem, e contrariá-la é o tipo de detalhe que faz o
+    /// usuário achar o produto estranho sem saber explicar por quê.
+    /// </remarks>
+    private async Task AoTeclar(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await Enviar();
+            return;
+        }
+
+        await SinalizarDigitacao();
+    }
+
+    /// <summary>
+    /// Avisa "está digitando" no máximo uma vez a cada 3 segundos.
+    /// </summary>
+    /// <remarks>
+    /// Sem esse controle, cada tecla vira um evento para cada membro do grupo — alguém
+    /// escrevendo rápido geraria dezenas de mensagens por segundo, multiplicadas pelo número
+    /// de participantes. O "parou de digitar" é enviado por um temporizador que reinicia a
+    /// cada tecla.
+    /// </remarks>
+    private async Task SinalizarDigitacao()
+    {
+        if (!_sinalizouDigitando)
+        {
+            _sinalizouDigitando = true;
+            await AoDigitar.InvokeAsync(true);
+        }
+
+        _pararDeDigitar?.Dispose();
+        _pararDeDigitar = new Timer(async void (_) =>
+        {
+            try
+            {
+                _sinalizouDigitando = false;
+                await AoDigitar.InvokeAsync(false);
+            }
+            catch (Exception)
+            {
+                // Callback de Timer é async void: uma exceção que escape daqui derruba
+                // o processo inteiro. Perder um "parou de digitar" é inofensivo — o
+                // indicador expira sozinho do outro lado.
+            }
+        }, null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
+    }
+
+    private async Task Enviar()
+    {
+        var texto = _texto.Trim();
+
+        if (string.IsNullOrEmpty(texto) || Desabilitado)
+        {
+            return;
+        }
+
+        _texto = string.Empty;
+
+        _pararDeDigitar?.Dispose();
+        _pararDeDigitar = null;
+
+        if (_sinalizouDigitando)
+        {
+            _sinalizouDigitando = false;
+            await AoDigitar.InvokeAsync(false);
+        }
+
+        await AoEnviar.InvokeAsync(texto);
+        await _campo.FocusAsync();
+    }
+
+    public void Dispose() => _pararDeDigitar?.Dispose();
+}

@@ -1,0 +1,243 @@
+using Dizido.Contracts.Auth;
+using Dizido.Contracts.Conversations;
+using Dizido.Contracts.Messages;
+using Dizido.Contracts.Sync;
+using Dizido.Contracts.Users;
+using System.Net;
+using System.Net.Http.Json;
+
+namespace Dizido.Client;
+
+/// <summary>
+/// Cliente tipado da API do Dizido. É o único lugar do cliente que sabe as URLs.
+/// </summary>
+/// <remarks>
+/// Este projeto não referencia nada de UI. Um app desktop, um bot ou um teste podem usá-lo
+/// igual — é o "SDK" do Dizido, e é o que torna a Fase 10 (desktop) barata.
+/// </remarks>
+public sealed class DizidoApiClient(HttpClient http, DizidoSession session)
+{
+    public HttpClient Http => http;
+
+    // ----- autenticação -----
+
+    public async Task<(AuthResponse? Auth, string? Erro)> RegisterAsync(
+        string email, string password, string displayName, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync("api/auth/register",
+            new RegisterRequest(email, password, displayName), ct);
+
+        return await LerAutenticacaoAsync(res, ct);
+    }
+
+    public async Task<(AuthResponse? Auth, string? Erro)> LoginAsync(
+        string email, string password, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync("api/auth/login", new LoginRequest(email, password), ct);
+
+        return await LerAutenticacaoAsync(res, ct);
+    }
+
+    /// <summary>
+    /// Tenta restaurar a sessão usando o cookie de refresh. Chamado na inicialização.
+    /// </summary>
+    /// <returns>true se havia sessão válida.</returns>
+    public async Task<bool> TryRestoreSessionAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await http.PostAsync("api/auth/refresh", content: null, ct);
+
+            if (!res.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            var auth = await res.Content.ReadFromJsonAsync<AuthResponse>(ct);
+
+            if (auth is null)
+            {
+                return false;
+            }
+
+            session.Set(auth);
+            return true;
+        }
+        catch (HttpRequestException)
+        {
+            // API fora do ar na inicialização não deve quebrar a aplicação inteira —
+            // a tela de login aparece e o usuário tenta de novo.
+            return false;
+        }
+    }
+
+    public async Task LogoutAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await http.PostAsync("api/auth/logout", content: null, ct);
+        }
+        finally
+        {
+            // Limpa o estado local mesmo se a chamada falhar: do ponto de vista do usuário,
+            // clicar em "sair" tem que sair.
+            session.Clear();
+        }
+    }
+
+    // ----- usuários -----
+
+    public Task<UserResponse?> GetMeAsync(CancellationToken ct = default) =>
+        http.GetFromJsonAsync<UserResponse>("api/users/me", ct);
+
+    public async Task<IReadOnlyList<UserResponse>> GetUsersAsync(CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<List<UserResponse>>("api/users", ct) ?? [];
+
+    // ----- conversas -----
+
+    public async Task<IReadOnlyList<ConversationResponse>> GetConversationsAsync(CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<List<ConversationResponse>>("api/conversations", ct) ?? [];
+
+    public async Task<ConversationResponse?> OpenDirectAsync(Guid otherUserId, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync("api/conversations/direct",
+            new CreateDirectRequest(otherUserId), ct);
+
+        return res.IsSuccessStatusCode
+            ? await res.Content.ReadFromJsonAsync<ConversationResponse>(ct)
+            : null;
+    }
+
+    public async Task<ConversationResponse?> CreateGroupAsync(string title, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync("api/conversations/groups",
+            new CreateGroupRequest(title), ct);
+
+        return res.IsSuccessStatusCode
+            ? await res.Content.ReadFromJsonAsync<ConversationResponse>(ct)
+            : null;
+    }
+
+    // ----- administração de grupo -----
+    //
+    // Estes métodos devolvem `null` em caso de sucesso e a mensagem de erro caso contrário.
+    // A interface só precisa mostrar o que o servidor disse — as regras de quem pode o quê
+    // vivem no domínio, e a mensagem já vem pronta e explicativa de lá.
+
+    public Task<string?> AddMemberAsync(Guid conversationId, Guid userId, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.PostAsync($"api/conversations/{conversationId}/members/{userId}", null, ct), ct);
+
+    public Task<string?> RemoveMemberAsync(Guid conversationId, Guid userId, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.DeleteAsync($"api/conversations/{conversationId}/members/{userId}", ct), ct);
+
+    public Task<string?> RenameGroupAsync(Guid conversationId, string title, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.PatchAsJsonAsync(
+            $"api/conversations/{conversationId}/title", new RenameGroupRequest(title), ct), ct);
+
+    public Task<string?> ChangeRoleAsync(Guid conversationId, Guid userId, string role, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.PatchAsJsonAsync(
+            $"api/conversations/{conversationId}/members/{userId}/role", new ChangeRoleRequest(role), ct), ct);
+
+    public Task<string?> TransferOwnershipAsync(Guid conversationId, Guid userId, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.PostAsync($"api/conversations/{conversationId}/owner/{userId}", null, ct), ct);
+
+    public Task<string?> MuteAsync(Guid conversationId, DateTimeOffset? until, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.PatchAsJsonAsync(
+            $"api/conversations/{conversationId}/mute", new MuteRequest(until), ct), ct);
+
+    private static async Task<string?> ExecutarAsync(
+        Func<Task<HttpResponseMessage>> chamada, CancellationToken ct)
+    {
+        using var res = await chamada();
+
+        return res.IsSuccessStatusCode ? null : await LerProblemaAsync(res, ct);
+    }
+
+    // ----- mensagens -----
+
+    public async Task<MessagePage> GetMessagesAsync(
+        Guid conversationId, Guid? before = null, int limit = 50, CancellationToken ct = default)
+    {
+        var url = $"api/conversations/{conversationId}/messages?limit={limit}"
+                  + (before is null ? string.Empty : $"&before={before}");
+
+        return await http.GetFromJsonAsync<MessagePage>(url, ct) ?? new MessagePage([], null);
+    }
+
+    public async Task<(MessageResponse? Mensagem, string? Erro)> SendMessageAsync(
+        Guid conversationId, SendMessageRequest request, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync($"api/conversations/{conversationId}/messages", request, ct);
+
+        if (res.IsSuccessStatusCode)
+        {
+            return (await res.Content.ReadFromJsonAsync<MessageResponse>(ct), null);
+        }
+
+        return (null, await LerProblemaAsync(res, ct));
+    }
+
+    // ----- sincronização -----
+
+    /// <summary>Busca tudo que aconteceu depois dos cursores informados.</summary>
+    public async Task<SyncResponse> SyncAsync(SyncRequest request, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync("api/sync", request, ct);
+
+        res.EnsureSuccessStatusCode();
+
+        return await res.Content.ReadFromJsonAsync<SyncResponse>(ct)
+               ?? new SyncResponse([], [], []);
+    }
+
+    // ----- auxiliares -----
+
+    private async Task<(AuthResponse?, string?)> LerAutenticacaoAsync(
+        HttpResponseMessage res, CancellationToken ct)
+    {
+        if (!res.IsSuccessStatusCode)
+        {
+            return (null, await LerProblemaAsync(res, ct));
+        }
+
+        var auth = await res.Content.ReadFromJsonAsync<AuthResponse>(ct);
+
+        if (auth is not null)
+        {
+            session.Set(auth);
+        }
+
+        return (auth, null);
+    }
+
+    /// <summary>Extrai uma mensagem legível de uma resposta ProblemDetails.</summary>
+    private static async Task<string> LerProblemaAsync(HttpResponseMessage res, CancellationToken ct)
+    {
+        if (res.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            return "Muitas tentativas seguidas. Espere um minuto e tente de novo.";
+        }
+
+        try
+        {
+            var problema = await res.Content.ReadFromJsonAsync<ProblemaDetalhado>(ct);
+
+            if (problema?.Errors is { Count: > 0 })
+            {
+                return string.Join(" ", problema.Errors.SelectMany(e => e.Value));
+            }
+
+            return problema?.Detail ?? problema?.Title ?? $"Erro {(int)res.StatusCode}.";
+        }
+        catch (Exception e) when (e is HttpRequestException or NotSupportedException or System.Text.Json.JsonException)
+        {
+            return $"Erro {(int)res.StatusCode}.";
+        }
+    }
+
+    private sealed record ProblemaDetalhado(
+        string? Title,
+        string? Detail,
+        int? Status,
+        Dictionary<string, string[]>? Errors);
+}

@@ -1,0 +1,42 @@
+@* Avatar circular com as iniciais e cor derivada do nome. *@
+
+<div class="dz-avatar @(Online ? "dz-avatar--online" : null)"
+     style="background: @Cor"
+     title="@Nome">
+    <span>@Iniciais</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Nome { get; set; } = string.Empty;
+
+    [Parameter] public bool Online { get; set; }
+
+    private string Iniciais
+    {
+        get
+        {
+            var partes = Nome.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            return partes.Length switch
+            {
+                0 => "?",
+                1 => partes[0][..Math.Min(2, partes[0].Length)].ToUpperInvariant(),
+                _ => $"{partes[0][0]}{partes[^1][0]}".ToUpperInvariant(),
+            };
+        }
+    }
+
+    // Cor derivada do nome: a mesma pessoa sempre tem a mesma cor, sem precisar guardar nada.
+    // string.GetHashCode() NÃO serve aqui — no .NET ele é aleatorizado a cada execução do
+    // processo, então a cor mudaria a cada recarga da página.
+    private string Cor
+    {
+        get
+        {
+            var soma = Nome.Aggregate(0, (acc, c) => (acc * 31 + c) & 0x7FFFFFFF);
+            var matiz = soma % 360;
+
+            return $"linear-gradient(135deg, hsl({matiz} 55% 45%), hsl({(matiz + 40) % 360} 55% 38%))";
+        }
+    }
+}

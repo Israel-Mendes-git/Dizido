@@ -1,0 +1,77 @@
+@* Um balão de mensagem. *@
+
+<div class="dz-bubble-row @(EhMinha ? "dz-bubble-row--minha" : null)">
+    @if (!EhMinha && MostrarAutor)
+    {
+        <Avatar Nome="@Mensagem.Dados.SenderDisplayName" />
+    }
+    else if (!EhMinha)
+    {
+        <div class="dz-bubble-espacador"></div>
+    }
+
+    <div class="dz-bubble @(EhMinha ? "dz-bubble--minha" : null) @(Mensagem.Estado == EstadoEnvio.Falhou ? "dz-bubble--falhou" : null)">
+        @if (!EhMinha && MostrarAutor)
+        {
+            <div class="dz-bubble__autor">@Mensagem.Dados.SenderDisplayName</div>
+        }
+
+        <div class="dz-bubble__texto">@Mensagem.Dados.Body</div>
+
+        <div class="dz-bubble__rodape">
+            @if (Mensagem.Dados.EditedAt is not null)
+            {
+                <span class="dz-bubble__editada">editada</span>
+            }
+
+            <time datetime="@Mensagem.Dados.SentAt.ToString("o")">
+                @Mensagem.Dados.SentAt.ToLocalTime().ToString("HH:mm")
+            </time>
+
+            @if (EhMinha)
+            {
+                <span class="dz-bubble__estado @(Mensagem.Estado == EstadoEnvio.Lida ? "dz-bubble__estado--lida" : null)"
+                      title="@Titulo">@Icone</span>
+            }
+        </div>
+
+        @if (Mensagem.Estado == EstadoEnvio.Falhou)
+        {
+            <button type="button" class="dz-bubble__reenviar" @onclick="Reenviar">
+                não enviou — tentar de novo
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public MensagemNaTela Mensagem { get; set; } = null!;
+
+    [Parameter] public bool EhMinha { get; set; }
+
+    /// <summary>Falso quando a mensagem anterior é do mesmo autor — evita repetir nome e avatar.</summary>
+    [Parameter] public bool MostrarAutor { get; set; } = true;
+
+    [Parameter] public EventCallback<MensagemNaTela> AoReenviar { get; set; }
+
+    // A convenção que todo mundo já conhece de outros aplicativos: um traço para "saindo",
+    // um tique para "o servidor recebeu", dois para "todos leram". Inventar símbolos novos
+    // aqui só obrigaria o usuário a aprender algo que ele já sabe.
+    private string Icone => Mensagem.Estado switch
+    {
+        EstadoEnvio.Enviando => "🕘",
+        EstadoEnvio.Enviada => "✓",
+        EstadoEnvio.Lida => "✓✓",
+        _ => "⚠",
+    };
+
+    private string Titulo => Mensagem.Estado switch
+    {
+        EstadoEnvio.Enviando => "na fila de envio",
+        EstadoEnvio.Enviada => "entregue ao servidor",
+        EstadoEnvio.Lida => "lida por todos",
+        _ => "não foi enviada",
+    };
+
+    private Task Reenviar() => AoReenviar.InvokeAsync(Mensagem);
+}
