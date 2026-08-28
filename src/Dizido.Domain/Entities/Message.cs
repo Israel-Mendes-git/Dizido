@@ -69,6 +69,16 @@ public sealed class Message
     /// <summary>Em avisos do sistema: quem foi afetado (removido, promovido...).</summary>
     public Guid? SystemTargetId { get; private set; }
 
+    /// <summary>O arquivo que acompanha a mensagem, se houver.</summary>
+    /// <remarks>
+    /// Uma referência, e não os dados do arquivo copiados para cá: o <see cref="Attachment"/>
+    /// existe antes desta mensagem e sobrevive a ela. Um anexo por mensagem — é assim que se
+    /// manda foto em app de mensagem, uma por balão, cada uma com sua própria legenda.
+    /// </remarks>
+    public Guid? AttachmentId { get; private set; }
+
+    public bool HasAttachment => AttachmentId is not null;
+
     public bool IsDeleted => DeletedAt is not null;
 
     public bool IsEdited => EditedAt is not null;
@@ -81,9 +91,19 @@ public sealed class Message
         string body,
         Guid clientMessageId,
         DateTimeOffset now,
-        Guid? replyToMessageId = null)
+        Guid? replyToMessageId = null,
+        Guid? attachmentId = null)
     {
-        ValidateBody(body);
+        // Com anexo, o texto é legenda e pode faltar: mandar uma foto sem escrever nada é o
+        // caso mais comum de todos. Sem anexo, uma mensagem vazia não é mensagem.
+        if (attachmentId is null)
+        {
+            ValidateBody(body);
+        }
+        else
+        {
+            ValidateBodyLength(body);
+        }
 
         DomainException.Require(
             clientMessageId != Guid.Empty,
@@ -94,9 +114,10 @@ public sealed class Message
             Id = Guid.CreateVersion7(now),
             ConversationId = conversationId,
             SenderId = senderId,
-            Body = body.Trim(),
+            Body = body?.Trim() ?? string.Empty,
             ClientMessageId = clientMessageId,
             ReplyToMessageId = replyToMessageId,
+            AttachmentId = attachmentId,
             SentAt = now,
             Kind = MessageKind.Text,
         };
@@ -144,9 +165,18 @@ public sealed class Message
         DomainException.Require(editorId == SenderId, "Só o autor pode editar a própria mensagem.");
         DomainException.Require(!IsDeleted, "Mensagem apagada não pode ser editada.");
 
-        ValidateBody(body);
+        // Apagar a legenda de uma foto é edição legítima; apagar o texto de uma mensagem
+        // que só tem texto é apagar a mensagem, e para isso existe o Delete.
+        if (HasAttachment)
+        {
+            ValidateBodyLength(body);
+        }
+        else
+        {
+            ValidateBody(body);
+        }
 
-        Body = body.Trim();
+        Body = body?.Trim() ?? string.Empty;
         EditedAt = now;
     }
 
@@ -173,8 +203,14 @@ public sealed class Message
             !string.IsNullOrWhiteSpace(body),
             "A mensagem não pode ser vazia.");
 
+        ValidateBodyLength(body);
+    }
+
+    /// <summary>O limite de tamanho, sem exigir que exista texto — o caso da legenda opcional.</summary>
+    private static void ValidateBodyLength(string? body)
+    {
         DomainException.Require(
-            body.Trim().Length <= MaxBodyLength,
+            (body?.Trim().Length ?? 0) <= MaxBodyLength,
             $"A mensagem não pode passar de {MaxBodyLength} caracteres.");
     }
 }

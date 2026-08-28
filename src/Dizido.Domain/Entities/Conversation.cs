@@ -226,13 +226,33 @@ public sealed class Conversation
     /// gravar mensagem em conversa da qual a pessoa não participa.
     /// </summary>
     public Message PostMessage(Guid senderId, string body, Guid clientMessageId, DateTimeOffset now,
-        Guid? replyToMessageId = null)
+        Guid? replyToMessageId = null, Attachment? attachment = null)
     {
         DomainException.Require(
             IsActiveMember(senderId),
             "Só membros ativos da conversa podem enviar mensagens.");
 
-        var message = Message.Create(Id, senderId, body, clientMessageId, now, replyToMessageId);
+        if (attachment is not null)
+        {
+            // As três perguntas que impedem um anexo de aparecer onde não devia. A primeira é
+            // a que importa mais: sem ela, bastaria descobrir o id de um arquivo de outra
+            // conversa para republicá-lo numa que você participa — e o download passaria,
+            // porque a autorização olha a conversa do anexo, que continuaria sendo a de origem.
+            DomainException.Require(
+                attachment.ConversationId == Id,
+                "O anexo pertence a outra conversa.");
+
+            DomainException.Require(
+                attachment.UploadedById == senderId,
+                "Só é possível anexar arquivos que você mesmo enviou.");
+
+            DomainException.Require(
+                attachment.IsReady,
+                "O envio deste arquivo ainda não terminou.");
+        }
+
+        var message = Message.Create(
+            Id, senderId, body, clientMessageId, now, replyToMessageId, attachment?.Id);
 
         if (now > LastMessageAt)
         {
