@@ -15,6 +15,16 @@ public sealed class ChatConnection(DizidoSession session, Uri baseAddress) : IAs
     private Timer? _heartbeat;
 
     public event Action<MessageResponse>? MessageReceived;
+
+    /// <summary>
+    /// Uma mensagem foi apagada por alguém.
+    /// </summary>
+    /// <remarks>
+    /// Evento próprio, e não um <c>MessageReceived</c> com o corpo vazio: quem recebe precisa
+    /// saber que aquilo é um apagamento para trocar o balão por "esta mensagem foi apagada".
+    /// Um corpo vazio chegando seria indistinguível de uma foto sem legenda.
+    /// </remarks>
+    public event Action<MessageDeletedEvent>? MessageDeleted;
     public event Action<TypingEvent>? TypingChanged;
     public event Action<PresenceEvent>? PresenceChanged;
     public event Action<ReadReceiptEvent>? ReadReceiptUpdated;
@@ -53,6 +63,7 @@ public sealed class ChatConnection(DizidoSession session, Uri baseAddress) : IAs
             .Build();
 
         _hub.On<MessageResponse>(nameof(IChatClient.MessageReceived), m => MessageReceived?.Invoke(m));
+        _hub.On<MessageDeletedEvent>(nameof(IChatClient.MessageDeleted), e => MessageDeleted?.Invoke(e));
         _hub.On<TypingEvent>(nameof(IChatClient.TypingChanged), e => TypingChanged?.Invoke(e));
         _hub.On<PresenceEvent>(nameof(IChatClient.PresenceChanged), e => PresenceChanged?.Invoke(e));
         _hub.On<ReadReceiptEvent>(nameof(IChatClient.ReadReceiptUpdated), e => ReadReceiptUpdated?.Invoke(e));

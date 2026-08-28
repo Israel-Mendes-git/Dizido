@@ -179,6 +179,19 @@ public sealed class DizidoApiClient(HttpClient http, DizidoSession session)
         return (null, await LerProblemaAsync(res, ct));
     }
 
+    /// <summary>Edita o texto de uma mensagem já enviada.</summary>
+    public Task<string?> EditMessageAsync(
+        Guid conversationId, Guid messageId, string body, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.PatchAsJsonAsync(
+            $"api/conversations/{conversationId}/messages/{messageId}",
+            new EditMessageRequest(body), ct), ct);
+
+    /// <summary>Apaga uma mensagem. O autor sempre pode; administradores, a de qualquer um.</summary>
+    public Task<string?> DeleteMessageAsync(
+        Guid conversationId, Guid messageId, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.DeleteAsync(
+            $"api/conversations/{conversationId}/messages/{messageId}", ct), ct);
+
     // ----- anexos -----
 
     /// <summary>

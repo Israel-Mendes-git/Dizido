@@ -67,7 +67,10 @@ else
                                CarregandoMaisAntigas="Store.CarregandoMaisAntigas"
                                AoCarregarMaisAntigas="() => Store.CarregarMaisAntigasAsync(ativa)"
                                AoReenviar="Store.ReenviarAsync"
-                               AoExpirarAnexo="RenovarAnexo">
+                               AoExpirarAnexo="RenovarAnexo"
+                               PodeModerar="EuModeroAConversaAtiva"
+                               AoEditar="EditarMensagem"
+                               AoApagar="ApagarMensagem">
                     <Acoes>
                         @if (ConversaAtivaEhGrupo)
                         {
@@ -279,6 +282,23 @@ else
             await Store.EnviarAsync(ativa, texto);
         }
     }
+
+    /// <summary>
+    /// Se eu sou administrador ou dono da conversa aberta.
+    /// </summary>
+    /// <remarks>
+    /// Vale só para decidir o que a tela oferece. A permissão de verdade é refeita no servidor,
+    /// pelo domínio — esconder um botão não impede ninguém de chamar o endpoint.
+    /// </remarks>
+    private bool EuModeroAConversaAtiva =>
+        ConversaAtivaObj?.Members
+            .FirstOrDefault(m => m.UserId == Sessao.UserId)?.Role is "Admin" or "Owner";
+
+    private Task<string?> EditarMensagem(MensagemNaTela mensagem, string texto) =>
+        Store.EditarAsync(mensagem.Dados.ConversationId, mensagem.Dados.Id, texto);
+
+    private Task<string?> ApagarMensagem(MensagemNaTela mensagem) =>
+        Store.ApagarAsync(mensagem.Dados.ConversationId, mensagem.Dados.Id);
 
     private async Task<string?> EnviarArquivo(MessageComposer.ArquivoEscolhido arquivo)
     {

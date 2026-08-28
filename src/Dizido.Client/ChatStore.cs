@@ -80,6 +80,7 @@ public sealed class ChatStore(
     public void Inscrever()
     {
         connection.MessageReceived += AoReceberMensagem;
+        connection.MessageDeleted += AoApagarMensagem;
         connection.ConversationAdded += AoAdicionarConversa;
         connection.PresenceChanged += AoMudarPresenca;
         connection.TypingChanged += AoMudarDigitacao;
@@ -90,6 +91,7 @@ public sealed class ChatStore(
     public void Desinscrever()
     {
         connection.MessageReceived -= AoReceberMensagem;
+        connection.MessageDeleted -= AoApagarMensagem;
         connection.ConversationAdded -= AoAdicionarConversa;
         connection.PresenceChanged -= AoMudarPresenca;
         connection.TypingChanged -= AoMudarDigitacao;
@@ -331,6 +333,24 @@ public sealed class ChatStore(
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Edita o texto de uma mensagem já enviada.
+    /// </summary>
+    /// <remarks>
+    /// Sem interface otimista aqui, ao contrário do envio. Escrever uma mensagem nova é uma
+    /// aposta segura — se falhar, a fila reenvia. Editar não: se o servidor recusar (a mensagem
+    /// é de outra pessoa, ou já foi apagada), mostrar o texto novo antes da confirmação teria
+    /// exibido uma mudança que nunca aconteceu. A resposta chega pelo evento do SignalR.
+    /// </remarks>
+    /// <returns>Mensagem de erro, ou <c>null</c> se deu certo.</returns>
+    public Task<string?> EditarAsync(Guid conversationId, Guid messageId, string texto,
+        CancellationToken ct = default) =>
+        api.EditMessageAsync(conversationId, messageId, texto, ct);
+
+    /// <returns>Mensagem de erro, ou <c>null</c> se deu certo.</returns>
+    public Task<string?> ApagarAsync(Guid conversationId, Guid messageId, CancellationToken ct = default) =>
+        api.DeleteMessageAsync(conversationId, messageId, ct);
+
     /// <summary>Fecha a conversa aberta (usado ao sair de um grupo).</summary>
     public Task SairDaConversaAtivaAsync()
     {
@@ -509,7 +529,13 @@ public sealed class ChatStore(
 
         var conversa = Conversas.FindIndex(c => c.Id == mensagem.ConversationId);
 
-        if (conversa >= 0)
+        // Só reordena se a mensagem for realmente mais recente do que a última conhecida.
+        //
+        // Sem esta condição, uma EDIÇÃO jogaria a conversa para o topo da lista carregando o
+        // SentAt original — que é antigo. O resultado seria uma lista ordenada por "atividade
+        // recente" com uma conversa de três dias atrás em primeiro lugar, e nada na tela
+        // explicando por quê.
+        if (conversa >= 0 && mensagem.SentAt > Conversas[conversa].LastMessageAt)
         {
             var atualizada = Conversas[conversa] with { LastMessageAt = mensagem.SentAt };
             Conversas.RemoveAt(conversa);
@@ -517,6 +543,35 @@ public sealed class ChatStore(
         }
 
         Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Marca a mensagem como apagada onde ela estiver na tela.
+    /// </summary>
+    /// <remarks>
+    /// A mensagem não sai da lista: ela vira "esta mensagem foi apagada", como o servidor faz
+    /// no banco. Removê-la reordenaria o histórico de quem está lendo, e uma resposta que
+    /// apontasse para ela ficaria apontando para o vazio.
+    /// </remarks>
+    private void AoApagarMensagem(MessageDeletedEvent evento)
+    {
+        var lista = Lista(evento.ConversationId);
+        var indice = lista.FindIndex(m => m.Dados.Id == evento.MessageId);
+
+        if (indice >= 0)
+        {
+            lista[indice] = lista[indice] with
+            {
+                Dados = lista[indice].Dados with
+                {
+                    Body = string.Empty,
+                    IsDeleted = true,
+                    Attachment = null,
+                },
+            };
+
+            Changed?.Invoke();
+        }
     }
 
     /// <summary>

@@ -62,7 +62,10 @@
                            EhMinha="@(mensagem.Dados.SenderId == MeuId)"
                            MostrarAutor="mostrarAutor"
                            AoReenviar="AoReenviar"
-                           AoExpirarAnexo="AoExpirarAnexo" />
+                           AoExpirarAnexo="AoExpirarAnexo"
+                           PodeModerar="PodeModerar"
+                           AoEditar="AoEditar"
+                           AoApagar="AoApagar" />
         }
     </div>
 
@@ -106,6 +109,14 @@
 
     /// <summary>Repassado ao balão: a URL assinada de um anexo expirou e precisa ser renovada.</summary>
     [Parameter] public EventCallback<Guid> AoExpirarAnexo { get; set; }
+
+    /// <summary>Se quem está vendo administra este grupo — libera apagar mensagem alheia.</summary>
+    [Parameter] public bool PodeModerar { get; set; }
+
+    /// <summary>Repassados ao balão. Devolvem a mensagem de erro, ou null.</summary>
+    [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoEditar { get; set; }
+
+    [Parameter] public Func<MensagemNaTela, Task<string?>>? AoApagar { get; set; }
 
     private string TextoDigitando => Digitando.Count == 1
         ? $"{Digitando[0]} está digitando"

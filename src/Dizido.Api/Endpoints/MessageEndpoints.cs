@@ -6,6 +6,7 @@ using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Messages;
 using Dizido.Contracts.Realtime;
 using Dizido.Domain.Entities;
+using Dizido.Domain.Enums;
 using Dizido.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -110,6 +111,90 @@ internal static class MessageEndpoints
             return Results.Created($"/api/conversations/{conversationId}/messages/{message.Id}", response);
         });
 
+        // Editar. As regras — só o autor, não edita apagada, não edita aviso de sistema — já
+        // estavam no domínio desde a Fase 1, testadas, e sem nenhuma porta que chegasse até elas.
+        group.MapPatch("/{messageId:guid}", async (
+            Guid conversationId,
+            Guid messageId,
+            EditMessageRequest request,
+            ICurrentUser currentUser,
+            DizidoDbContext db,
+            TimeProvider clock,
+            IHubContext<ChatHub, IChatClient> hub,
+            AttachmentPresenter presenter,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } me)
+            {
+                return Results.Unauthorized();
+            }
+
+            var mensagem = await CarregarParaAlterarAsync(db, conversationId, messageId, me, ct);
+
+            if (mensagem is null)
+            {
+                return Results.NotFound();
+            }
+
+            mensagem.Edit(me, request.Body, clock.GetUtcNow());
+            await db.SaveChangesAsync(ct);
+
+            var resposta = await ToResponseAsync(mensagem, db, presenter, ct);
+
+            // Reaproveita o MessageReceived em vez de inventar um evento de edição: o cliente
+            // já casa a mensagem pelo ClientMessageId e substitui no lugar. Um evento novo
+            // exigiria um segundo caminho de atualização fazendo exatamente o mesmo.
+            await hub.Clients.Group(ChatHub.GroupName(conversationId)).MessageReceived(resposta);
+
+            return Results.Ok(resposta);
+        });
+
+        // Apagar. Soft delete: a linha fica, o corpo é limpo. Apagar de verdade quebraria as
+        // respostas que apontam para ela e as marcas de leitura dos membros.
+        group.MapDelete("/{messageId:guid}", async (
+            Guid conversationId,
+            Guid messageId,
+            ICurrentUser currentUser,
+            DizidoDbContext db,
+            TimeProvider clock,
+            IHubContext<ChatHub, IChatClient> hub,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } me)
+            {
+                return Results.Unauthorized();
+            }
+
+            var conversa = await db.Conversations
+                .Include(c => c.Members)
+                .FirstOrDefaultAsync(c => c.Id == conversationId, ct);
+
+            if (conversa is null || !conversa.IsActiveMember(me))
+            {
+                return Results.NotFound();
+            }
+
+            var mensagem = await db.Messages.FirstOrDefaultAsync(
+                m => m.Id == messageId && m.ConversationId == conversationId, ct);
+
+            if (mensagem is null)
+            {
+                return Results.NotFound();
+            }
+
+            // Quem modera aqui é admin ou dono do grupo. A pergunta é feita à conversa, que é
+            // quem sabe de cargos — o endpoint não interpreta MemberRole por conta própria.
+            var ehModerador = conversa.FindMember(me)?.Role >= MemberRole.Admin;
+
+            mensagem.Delete(me, clock.GetUtcNow(), ehModerador);
+            await db.SaveChangesAsync(ct);
+
+            await hub.Clients.Group(ChatHub.GroupName(conversationId))
+                .MessageDeleted(new MessageDeletedEvent(conversationId, messageId, clock.GetUtcNow()));
+
+            return Results.NoContent();
+        });
+
         group.MapGet("/", async (
             Guid conversationId,
             ICurrentUser currentUser,
@@ -160,6 +245,27 @@ internal static class MessageEndpoints
         });
 
         return group;
+    }
+
+    /// <summary>
+    /// Carrega uma mensagem para alteração, conferindo antes que quem pede participa da conversa.
+    /// </summary>
+    /// <remarks>
+    /// Duas checagens em vez de uma consulta só com join: a participação é conferida primeiro,
+    /// para que um não-membro receba 404 sem descobrir se aquela mensagem existe. Fundindo as
+    /// duas, o mesmo 404 sairia — mas a diferença voltaria a aparecer no dia em que alguém
+    /// otimizasse a consulta sem perceber a intenção.
+    /// </remarks>
+    private static async Task<Message?> CarregarParaAlterarAsync(
+        DizidoDbContext db, Guid conversationId, Guid messageId, Guid me, CancellationToken ct)
+    {
+        var ehMembro = await db.ConversationMembers.AnyAsync(
+            m => m.ConversationId == conversationId && m.UserId == me && m.LeftAt == null, ct);
+
+        return ehMembro
+            ? await db.Messages.FirstOrDefaultAsync(
+                m => m.Id == messageId && m.ConversationId == conversationId, ct)
+            : null;
     }
 
     /// <summary>

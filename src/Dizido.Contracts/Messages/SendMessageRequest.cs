@@ -17,3 +17,10 @@ public sealed record SendMessageRequest(
     string Body,
     Guid? ReplyToMessageId = null,
     Guid? AttachmentId = null);
+
+/// <summary>Corpo do PATCH que edita uma mensagem já enviada.</summary>
+/// <remarks>
+/// Só o texto muda. Trocar o anexo de uma mensagem seria outra mensagem — e o histórico ficaria
+/// mentindo para quem já tinha visto a original.
+/// </remarks>
+public sealed record EditMessageRequest(string Body);

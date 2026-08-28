@@ -241,6 +241,71 @@ button { font: inherit; cursor: pointer; }
 
 .dz-bubble__texto { white-space: pre-wrap; }
 
+/* ---------- editar e apagar ---------- */
+
+.dz-bubble { position: relative; }
+
+.dz-bubble__apagada {
+    font-style: italic;
+    color: var(--dz-texto-fraco);
+}
+
+/* As ações aparecem ao passar o ponteiro. Ficam ocultas por opacidade, e não por
+   display:none, para continuarem no DOM e na ordem de tabulação: quem navega por teclado
+   também precisa poder editar. O :focus-within as revela quando o foco chega nelas. */
+.dz-bubble__acoes {
+    position: absolute;
+    top: -10px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity .12s;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    padding: 2px;
+}
+
+.dz-bubble:hover .dz-bubble__acoes,
+.dz-bubble__acoes:focus-within { opacity: 1; }
+
+.dz-bubble__acao {
+    background: none;
+    border: 0;
+    color: var(--dz-texto-fraco);
+    font: inherit;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.dz-bubble__acao:hover { color: var(--dz-texto); background: var(--dz-borda); }
+
+.dz-bubble__acao--principal { color: var(--dz-acento); }
+
+.dz-bubble__edicao { display: flex; flex-direction: column; gap: 6px; }
+
+.dz-bubble__edicao-campo {
+    resize: vertical;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-acento);
+    border-radius: var(--dz-raio);
+    color: inherit;
+    font: inherit;
+    padding: 8px 10px;
+    min-width: 240px;
+}
+
+.dz-bubble__edicao-acoes { display: flex; gap: 4px; justify-content: flex-end; }
+
+.dz-bubble__erro {
+    margin: 0;
+    color: var(--dz-erro);
+    font-size: 12px;
+}
+
 /* ---------- anexos ---------- */
 
 .dz-anexo-imagem {

@@ -10,25 +10,58 @@
         <div class="dz-bubble-espacador"></div>
     }
 
-    <div class="dz-bubble @(EhMinha ? "dz-bubble--minha" : null) @(Mensagem.Estado == EstadoEnvio.Falhou ? "dz-bubble--falhou" : null)">
+    <div class="dz-bubble @(EhMinha ? "dz-bubble--minha" : null) @(Mensagem.Estado == EstadoEnvio.Falhou ? "dz-bubble--falhou" : null) @(Mensagem.Dados.IsDeleted ? "dz-bubble--apagada" : null)">
         @if (!EhMinha && MostrarAutor)
         {
             <div class="dz-bubble__autor">@Mensagem.Dados.SenderDisplayName</div>
         }
 
-        @if (Mensagem.Dados.Attachment is { } anexo)
+        @if (Mensagem.Dados.IsDeleted)
         {
-            <AttachmentView Anexo="anexo" AoExpirar="AoExpirarAnexo" />
+            @* A mensagem some do conteúdo mas não da lista: quem estava lendo não perde a
+               posição, e uma resposta que aponte para ela continua fazendo sentido. *@
+            <div class="dz-bubble__apagada">esta mensagem foi apagada</div>
         }
-
-        @* Com anexo, o corpo é legenda e costuma vir vazio — não vale ocupar espaço. *@
-        @if (!string.IsNullOrEmpty(Mensagem.Dados.Body))
+        else if (_editando)
         {
-            <div class="dz-bubble__texto">@Mensagem.Dados.Body</div>
+            <div class="dz-bubble__edicao">
+                <textarea class="dz-bubble__edicao-campo"
+                          rows="2"
+                          aria-label="Editar mensagem"
+                          @bind="_rascunho"
+                          @bind:event="oninput"
+                          @onkeydown="AoTeclarNaEdicao"></textarea>
+
+                @if (_erro is not null)
+                {
+                    <p class="dz-bubble__erro" role="alert">@_erro</p>
+                }
+
+                <div class="dz-bubble__edicao-acoes">
+                    <button type="button" class="dz-bubble__acao" @onclick="Cancelar">cancelar</button>
+                    <button type="button" class="dz-bubble__acao dz-bubble__acao--principal"
+                            disabled="@_salvando" @onclick="Salvar">
+                        @(_salvando ? "salvando…" : "salvar")
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            @if (Mensagem.Dados.Attachment is { } anexo)
+            {
+                <AttachmentView Anexo="anexo" AoExpirar="AoExpirarAnexo" />
+            }
+
+            @* Com anexo, o corpo é legenda e costuma vir vazio — não vale ocupar espaço. *@
+            @if (!string.IsNullOrEmpty(Mensagem.Dados.Body))
+            {
+                <div class="dz-bubble__texto">@Mensagem.Dados.Body</div>
+            }
         }
 
         <div class="dz-bubble__rodape">
-            @if (Mensagem.Dados.EditedAt is not null)
+            @if (Mensagem.Dados.EditedAt is not null && !Mensagem.Dados.IsDeleted)
             {
                 <span class="dz-bubble__editada">editada</span>
             }
@@ -50,10 +83,37 @@
                 não enviou — tentar de novo
             </button>
         }
+
+        @* As ações ficam escondidas até o ponteiro passar pelo balão (regra de CSS), mas
+           continuam no DOM e alcançáveis por teclado — o contrário excluiria quem não usa
+           mouse de editar as próprias mensagens. *@
+        @if (PodeEditar || PodeApagar)
+        {
+            <div class="dz-bubble__acoes">
+                @if (PodeEditar)
+                {
+                    <button type="button" class="dz-bubble__acao"
+                            title="Editar" aria-label="Editar mensagem"
+                            @onclick="Editar">editar</button>
+                }
+
+                @if (PodeApagar)
+                {
+                    <button type="button" class="dz-bubble__acao"
+                            title="Apagar" aria-label="Apagar mensagem"
+                            @onclick="Apagar">apagar</button>
+                }
+            </div>
+        }
     </div>
 </div>
 
 @code {
+    private bool _editando;
+    private bool _salvando;
+    private string _rascunho = string.Empty;
+    private string? _erro;
+
     [Parameter, EditorRequired] public MensagemNaTela Mensagem { get; set; } = null!;
 
     [Parameter] public bool EhMinha { get; set; }
@@ -61,10 +121,45 @@
     /// <summary>Falso quando a mensagem anterior é do mesmo autor — evita repetir nome e avatar.</summary>
     [Parameter] public bool MostrarAutor { get; set; } = true;
 
+    /// <summary>Se quem está vendo é administrador ou dono do grupo.</summary>
+    /// <remarks>
+    /// Só afeta o que a tela oferece. Quem decide de verdade é o servidor, que refaz a mesma
+    /// pergunta ao domínio — esconder um botão não é controle de acesso.
+    /// </remarks>
+    [Parameter] public bool PodeModerar { get; set; }
+
     [Parameter] public EventCallback<MensagemNaTela> AoReenviar { get; set; }
 
     /// <summary>Repassa o pedido de renovar a URL assinada de um anexo que expirou.</summary>
     [Parameter] public EventCallback<Guid> AoExpirarAnexo { get; set; }
+
+    /// <summary>Salva o texto novo. Devolve a mensagem de erro, ou <c>null</c>.</summary>
+    [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoEditar { get; set; }
+
+    /// <summary>Apaga a mensagem. Devolve a mensagem de erro, ou <c>null</c>.</summary>
+    [Parameter] public Func<MensagemNaTela, Task<string?>>? AoApagar { get; set; }
+
+    /// <summary>
+    /// Só o autor edita, e só o que já foi gravado.
+    /// </summary>
+    /// <remarks>
+    /// Uma mensagem ainda na fila não tem id no servidor para ser editada. O caminho natural
+    /// para mudar o que está saindo é apagar e escrever de novo — ela ainda não chegou a
+    /// ninguém.
+    /// </remarks>
+    private bool PodeEditar =>
+        AoEditar is not null
+        && EhMinha
+        && !Mensagem.Dados.IsDeleted
+        && !Mensagem.EhProvisoria
+        && !_editando;
+
+    private bool PodeApagar =>
+        AoApagar is not null
+        && (EhMinha || PodeModerar)
+        && !Mensagem.Dados.IsDeleted
+        && !Mensagem.EhProvisoria
+        && !_editando;
 
     // A convenção que todo mundo já conhece de outros aplicativos: um traço para "saindo",
     // um tique para "o servidor recebeu", dois para "todos leram". Inventar símbolos novos
@@ -86,4 +181,72 @@
     };
 
     private Task Reenviar() => AoReenviar.InvokeAsync(Mensagem);
+
+    private void Editar()
+    {
+        _rascunho = Mensagem.Dados.Body;
+        _erro = null;
+        _editando = true;
+    }
+
+    private void Cancelar()
+    {
+        _editando = false;
+        _erro = null;
+    }
+
+    /// <summary>Enter salva, Escape cancela — as mesmas teclas do compositor.</summary>
+    private async Task AoTeclarNaEdicao(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            Cancelar();
+        }
+        else if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await Salvar();
+        }
+    }
+
+    private async Task Salvar()
+    {
+        var texto = _rascunho.Trim();
+
+        // Esvaziar o texto de uma mensagem sem anexo seria apagá-la, e para isso existe o
+        // botão ao lado. O servidor recusaria de qualquer forma; barrar aqui evita uma ida
+        // à rede para receber um "não".
+        if (texto.Length == 0 && Mensagem.Dados.Attachment is null)
+        {
+            _erro = "Para deixar a mensagem vazia, apague-a.";
+            return;
+        }
+
+        if (texto == Mensagem.Dados.Body)
+        {
+            Cancelar();
+            return;
+        }
+
+        _salvando = true;
+        _erro = null;
+
+        try
+        {
+            _erro = await AoEditar!(Mensagem, texto);
+
+            if (_erro is null)
+            {
+                _editando = false;
+            }
+        }
+        finally
+        {
+            _salvando = false;
+        }
+    }
+
+    private async Task Apagar()
+    {
+        _erro = await AoApagar!(Mensagem);
+    }
 }
