@@ -1,0 +1,224 @@
+@* Painel lateral de administração do grupo. Os botões só aparecem para quem pode usá-los —
+   mas a permissão de verdade está no servidor: esconder é cortesia, não segurança. *@
+
+<aside class="dz-grupo">
+    <header class="dz-grupo__topo">
+        <h2>Grupo</h2>
+        <button type="button" class="dz-botao-texto" @onclick="AoFechar">fechar</button>
+    </header>
+
+    @if (_erro is not null)
+    {
+        <p class="dz-login__erro" role="alert">@_erro</p>
+    }
+
+    <section class="dz-grupo__bloco">
+        <label>
+            Nome
+            <input type="text" @bind="_titulo" @bind:event="oninput"
+                   maxlength="60" disabled="@(!SouAdmin)" />
+        </label>
+
+        @if (SouAdmin)
+        {
+            <button type="button" class="dz-botao"
+                    disabled="@(_ocupado || string.IsNullOrWhiteSpace(_titulo) || _titulo == Conversa.Title)"
+                    @onclick="Renomear">salvar nome</button>
+        }
+    </section>
+
+    <section class="dz-grupo__bloco">
+        <h3>Participantes (@Conversa.Members.Count)</h3>
+
+        @foreach (var membro in Ordenados)
+        {
+            <div class="dz-grupo__membro" @key="membro.UserId">
+                <Avatar Nome="@membro.DisplayName" Online="@EstaOnline(membro.UserId)" />
+
+                <div class="dz-grupo__membro-texto">
+                    <span>@membro.DisplayName @(membro.UserId == MeuId ? "(você)" : null)</span>
+                    <small>@Cargo(membro.Role)</small>
+                </div>
+
+                <div class="dz-grupo__membro-acoes">
+                    @if (SouDono && membro.UserId != MeuId)
+                    {
+                        @if (membro.Role == "Member")
+                        {
+                            <button type="button" class="dz-botao-texto" disabled="@_ocupado"
+                                    @onclick='() => TrocarCargo(membro.UserId, "Admin")'>promover</button>
+                        }
+                        else if (membro.Role == "Admin")
+                        {
+                            <button type="button" class="dz-botao-texto" disabled="@_ocupado"
+                                    @onclick='() => TrocarCargo(membro.UserId, "Member")'>rebaixar</button>
+                        }
+
+                        <button type="button" class="dz-botao-texto" disabled="@_ocupado"
+                                @onclick="() => Transferir(membro.UserId)">passar o grupo</button>
+                    }
+
+                    @if (PodeRemover(membro))
+                    {
+                        <button type="button" class="dz-botao-texto dz-perigo" disabled="@_ocupado"
+                                @onclick="() => Remover(membro.UserId)">remover</button>
+                    }
+                </div>
+            </div>
+        }
+    </section>
+
+    @if (SouAdmin && Candidatos.Count > 0)
+    {
+        <section class="dz-grupo__bloco">
+            <h3>Adicionar alguém</h3>
+            @foreach (var usuario in Candidatos)
+            {
+                <button type="button" @key="usuario.Id" class="dz-painel__item" disabled="@_ocupado"
+                        @onclick="() => Adicionar(usuario.Id)">
+                    <Avatar Nome="@usuario.DisplayName" Online="@EstaOnline(usuario.Id)" />
+                    <span>@usuario.DisplayName</span>
+                </button>
+            }
+        </section>
+    }
+
+    <section class="dz-grupo__bloco">
+        @if (SouDono)
+        {
+            @* O dono não some sem passar o bastão: um grupo sem dono não teria como
+               promover ninguém depois. É regra do domínio, repetida aqui só como aviso. *@
+            <p class="dz-vazio">Para sair, passe o grupo para outra pessoa antes.</p>
+        }
+        else
+        {
+            <button type="button" class="dz-botao dz-perigo" disabled="@_ocupado"
+                    @onclick="Sair">sair do grupo</button>
+        }
+    </section>
+</aside>
+
+@code {
+    private string _titulo = string.Empty;
+    private bool _ocupado;
+    private string? _erro;
+    private Guid _ultimaConversa;
+
+    [Parameter, EditorRequired] public ConversationResponse Conversa { get; set; } = null!;
+
+    [Parameter] public Guid MeuId { get; set; }
+
+    [Parameter, EditorRequired] public IReadOnlyList<UserResponse> Usuarios { get; set; } = [];
+
+    [Parameter, EditorRequired] public Func<Guid, bool> EstaOnline { get; set; } = _ => false;
+
+    [Parameter, EditorRequired] public DizidoApiClient Api { get; set; } = null!;
+
+    [Parameter] public EventCallback AoMudar { get; set; }
+
+    [Parameter] public EventCallback AoFechar { get; set; }
+
+    [Parameter] public EventCallback AoSairDoGrupo { get; set; }
+
+    private ConversationMemberResponse? Eu => Conversa.Members.FirstOrDefault(m => m.UserId == MeuId);
+
+    private bool SouDono => Eu?.Role == "Owner";
+
+    private bool SouAdmin => Eu?.Role is "Owner" or "Admin";
+
+    // Ordem: dono, admins, depois membros — e alfabética dentro de cada faixa.
+    private IEnumerable<ConversationMemberResponse> Ordenados => Conversa.Members
+        .OrderByDescending(m => m.Role == "Owner")
+        .ThenByDescending(m => m.Role == "Admin")
+        .ThenBy(m => m.DisplayName, StringComparer.CurrentCultureIgnoreCase);
+
+    private List<UserResponse> Candidatos =>
+        [.. Usuarios.Where(u => Conversa.Members.All(m => m.UserId != u.Id))];
+
+    protected override void OnParametersSet()
+    {
+        // Só reseta o campo ao trocar de conversa. Sem esta checagem, qualquer redesenho
+        // (uma mensagem chegando, por exemplo) apagaria o que o usuário está digitando.
+        if (_ultimaConversa != Conversa.Id)
+        {
+            _ultimaConversa = Conversa.Id;
+            _titulo = Conversa.Title ?? string.Empty;
+            _erro = null;
+        }
+    }
+
+    private static string Cargo(string role) => role switch
+    {
+        "Owner" => "dono",
+        "Admin" => "administrador",
+        _ => "participante",
+    };
+
+    private bool PodeRemover(ConversationMemberResponse membro)
+    {
+        if (membro.UserId == MeuId || membro.Role == "Owner")
+        {
+            return false;
+        }
+
+        // Espelha a regra do servidor: só remove quem tem cargo estritamente inferior.
+        return Eu?.Role switch
+        {
+            "Owner" => true,
+            "Admin" => membro.Role == "Member",
+            _ => false,
+        };
+    }
+
+    private Task Renomear() => Executar(() => Api.RenameGroupAsync(Conversa.Id, _titulo.Trim()));
+
+    private Task Adicionar(Guid userId) => Executar(() => Api.AddMemberAsync(Conversa.Id, userId));
+
+    private Task Remover(Guid userId) => Executar(() => Api.RemoveMemberAsync(Conversa.Id, userId));
+
+    private Task TrocarCargo(Guid userId, string cargo) =>
+        Executar(() => Api.ChangeRoleAsync(Conversa.Id, userId, cargo));
+
+    private Task Transferir(Guid userId) =>
+        Executar(() => Api.TransferOwnershipAsync(Conversa.Id, userId));
+
+    private async Task Sair()
+    {
+        await Executar(() => Api.RemoveMemberAsync(Conversa.Id, MeuId));
+
+        if (_erro is null)
+        {
+            await AoSairDoGrupo.InvokeAsync();
+        }
+    }
+
+    /// <summary>Roda a ação, mostra o erro do servidor se houver, e recarrega o estado.</summary>
+    private async Task Executar(Func<Task<string?>> acao)
+    {
+        if (_ocupado)
+        {
+            return;
+        }
+
+        _ocupado = true;
+        _erro = null;
+
+        try
+        {
+            _erro = await acao();
+
+            if (_erro is null)
+            {
+                await AoMudar.InvokeAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+            _erro = "Não consegui falar com o servidor.";
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+}

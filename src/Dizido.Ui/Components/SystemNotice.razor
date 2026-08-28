@@ -1,0 +1,44 @@
+@* Aviso do sistema no fluxo da conversa: uma linha discreta, sem balão nem avatar. *@
+
+<div class="dz-aviso">
+    <span>@Texto</span>
+    <time datetime="@Mensagem.SentAt.ToString("o")">
+        @Mensagem.SentAt.ToLocalTime().ToString("HH:mm")
+    </time>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public MessageResponse Mensagem { get; set; } = null!;
+
+    [Parameter] public Guid MeuId { get; set; }
+
+    /// <summary>
+    /// Monta a frase a partir do código do evento.
+    /// </summary>
+    /// <remarks>
+    /// O servidor grava o código (<c>MemberJoined</c>) e os envolvidos, nunca a frase pronta.
+    /// A montagem acontece aqui porque é o único lugar que sabe quem está lendo — daí o
+    /// "você" em vez do próprio nome, que é o que uma pessoa espera ler.
+    /// </remarks>
+    private string Texto
+    {
+        get
+        {
+            var autor = Mensagem.SenderId == MeuId ? "Você" : Mensagem.SenderDisplayName;
+            var alvo = Mensagem.SystemTargetId == MeuId ? "você" : Mensagem.SystemTargetName ?? "alguém";
+
+            return Mensagem.SystemEvent switch
+            {
+                "MemberJoined" => $"{autor} adicionou {alvo} ao grupo",
+                "MemberLeft" => $"{autor} saiu do grupo",
+                "MemberRemoved" => $"{autor} removeu {alvo}",
+                "TitleChanged" => $"{autor} mudou o nome do grupo para “{Mensagem.Body}”",
+                "OwnershipTransferred" => $"{autor} passou o grupo para {alvo}",
+                "RoleChanged" => Mensagem.Body == "Admin"
+                    ? $"{autor} tornou {alvo} administrador"
+                    : $"{autor} removeu a administração de {alvo}",
+                _ => "algo mudou no grupo",
+            };
+        }
+    }
+}
