@@ -1,0 +1,36 @@
+# Imagem do app web: os arquivos do Blazor servidos pelo Caddy, que também é o porteiro
+# da API.
+#
+#   docker build -f Dockerfile.web -t dizido-web .
+#
+# O Blazor WebAssembly é um site estático — HTML, JavaScript e os .dll compilados para wasm.
+# Não há processo .NET rodando aqui: o navegador é quem executa a aplicação. Por isso a imagem
+# final não tem runtime nenhum, só um servidor de arquivos.
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /origem
+
+COPY Directory.Build.props Dizido.sln .editorconfig ./
+COPY src/Dizido.Domain/Dizido.Domain.csproj src/Dizido.Domain/
+COPY src/Dizido.Contracts/Dizido.Contracts.csproj src/Dizido.Contracts/
+COPY src/Dizido.Client/Dizido.Client.csproj src/Dizido.Client/
+COPY src/Dizido.Ui/Dizido.Ui.csproj src/Dizido.Ui/
+COPY src/Dizido.Web/Dizido.Web.csproj src/Dizido.Web/
+
+RUN dotnet restore src/Dizido.Web/Dizido.Web.csproj
+
+COPY src/ src/
+
+RUN dotnet publish src/Dizido.Web/Dizido.Web.csproj \
+    --configuration Release \
+    --no-restore \
+    -p:SatelliteResourceLanguages=en \
+    --output /publicado
+
+# ---------------------------------------------------------------------------
+FROM caddy:2-alpine AS runtime
+
+# O publish do Blazor deixa o site dentro de wwwroot/.
+COPY --from=build /publicado/wwwroot /srv
+
+COPY deploy/Caddyfile /etc/caddy/Caddyfile

@@ -200,13 +200,19 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+// Modo "job de migração": aplica o que estiver pendente e encerra, sem abrir porta nenhuma.
+// É assim que o deploy migra o banco — ver Migracoes para o porquê de não ser no start normal.
+if (args.Contains(Migracoes.Argumento, StringComparer.Ordinal))
+{
+    return await Migracoes.AplicarAsync(app);
+}
+
 // O bucket precisa existir antes do primeiro upload, e criá-lo é idempotente. Fica aqui, e
 // não numa migration ou num passo manual de instalação, porque é a única dependência do
 // storage que a aplicação tem — e esquecer de criá-lo dá um erro obscuro na primeira foto.
 //
-// Diferente das migrations do banco, que ficam de fora do Program.cs de propósito: com duas
-// instâncias subindo juntas, as duas tentariam migrar ao mesmo tempo. Criar bucket que já
-// existe não é problema; aplicar a mesma migration duas vezes, é.
+// Diferente das migrations do banco: criar um bucket que já existe não é problema, aplicar a
+// mesma migration duas vezes é.
 await app.Services.GetRequiredService<IObjectStorage>().EnsureBucketAsync();
 
 app.UseExceptionHandler();
@@ -255,7 +261,11 @@ app.MapAttachmentEndpoints().RequireAuthorization();
 // query string, porque WebSocket nao permite cabecalho Authorization no handshake.
 app.MapHub<ChatHub>("/hubs/chat").RequireAuthorization();
 
-app.Run();
+await app.RunAsync();
+
+// O `return` explícito existe porque o modo de migração acima devolve um código de saída.
+// Sem ele, o compilador não aceitaria os dois caminhos: um que retorna int e outro que não.
+return 0;
 
 /// <summary>
 /// Necessária para os testes de integração acessarem a classe Program gerada implicitamente

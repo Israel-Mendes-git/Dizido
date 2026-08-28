@@ -1,0 +1,83 @@
+# Caddy: TLS automático e porteiro entre o navegador e a API.
+#
+# O domínio vem da variável DIZIDO_DOMINIO. Com um domínio de verdade apontando para a
+# máquina, o Caddy resolve o certificado sozinho com o Let's Encrypt — sem cron de renovação,
+# sem certbot, sem lembrar de nada daqui a noventa dias. É a razão de ele estar aqui em vez
+# do nginx.
+{$DIZIDO_DOMINIO} {
+
+	# Comprime o que vale a pena. Os .dll do Blazor são grandes e comprimem muito bem —
+	# é a diferença mais visível no tempo do primeiro carregamento.
+	encode zstd gzip
+
+	# A API e o hub de tempo real, atrás do mesmo domínio do site.
+	#
+	# É por isso que o CORS some em produção: navegador e API passam a compartilhar a origem,
+	# e a política de origem cruzada não se aplica. O CORS do Program.cs existe só para o
+	# desenvolvimento, em que o Blazor está em :5145 e a API em :5224.
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	handle /hubs/* {
+		# O reverse_proxy do Caddy já repassa o Upgrade do WebSocket sem configuração extra.
+		# No nginx isso seria três linhas de cabeçalho fáceis de esquecer — e o sintoma de
+		# esquecer é o tempo real "não funcionar" sem erro nenhum, caindo para long polling.
+		reverse_proxy api:8080
+	}
+
+	handle /health* {
+		reverse_proxy api:8080
+	}
+
+	# Todo o resto é o site.
+	handle {
+		root * /srv
+
+		# try_files com fallback para index.html: o Blazor é uma aplicação de página única.
+		# Sem esta linha, recarregar a página numa rota interna devolveria 404 — o servidor
+		# procuraria um arquivo que não existe, porque a rota só existe dentro do navegador.
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		# O navegador não deve adivinhar o tipo de um arquivo pelo conteúdo. É a defesa que
+		# acompanha o Content-Disposition dos anexos: mesmo que algo escape, não vira HTML.
+		X-Content-Type-Options nosniff
+
+		# A página não pode ser embutida em iframe de terceiros (clickjacking).
+		X-Frame-Options DENY
+
+		Referrer-Policy strict-origin-when-cross-origin
+
+		# HSTS: depois da primeira visita, o navegador se recusa a falar HTTP com este domínio.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+		# Não anuncie qual servidor está rodando.
+		-Server
+	}
+}
+
+# O storage precisa de endereço público próprio.
+#
+# Lembre que o arquivo NÃO passa pela API: o navegador faz PUT e GET direto no storage, com
+# uma URL assinada. Se o MinIO só existisse na rede interna, nenhuma dessas URLs funcionaria.
+#
+# Subdomínio, e não um caminho como /arquivos/*: **o caminho faz parte da assinatura**. Servir
+# o storage sob um prefixo exigiria que a API assinasse já contando com ele, e qualquer
+# divergência daria 403 sem explicação.
+#
+# É para isto que existe `Storage:PublicEndpoint` na configuração: a API fala com o storage
+# pelo nome interno (`http://storage:9000`) e assina as URLs com este endereço aqui.
+arquivos.{$DIZIDO_DOMINIO} {
+	encode zstd gzip
+
+	reverse_proxy storage:9000
+
+	header {
+		X-Content-Type-Options nosniff
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

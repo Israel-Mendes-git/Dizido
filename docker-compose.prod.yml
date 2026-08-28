@@ -1,0 +1,195 @@
+# Dizido em produção.
+#
+#   cp deploy/.env.exemplo .env      e preencha os segredos
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Diferenças em relação ao docker-compose.yml de desenvolvimento, e o porquê de cada uma:
+#
+#   - Nenhuma senha escrita aqui. Tudo vem do .env, que não está no git.
+#   - Banco, cache e storage NÃO publicam porta no host. Só o Caddy fica exposto. Um Postgres
+#     em 5432 aberto para a internet é encontrado por varredura em minutos.
+#   - As migrations rodam num serviço próprio, que termina antes de a API subir.
+#   - Há um serviço de backup.
+
+name: dizido
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # A única porta aberta para o mundo
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}-web:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    environment:
+      DIZIDO_DOMINIO: ${DIZIDO_DOMINIO:?defina o domínio no .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      # QUIC/HTTP3, que o Caddy usa quando o navegador aceita.
+      - "443:443/udp"
+    volumes:
+      # Os certificados do Let's Encrypt vivem aqui. Sem este volume, cada reinício pediria
+      # certificado novo — e o Let's Encrypt limita quantos você pode pedir por semana.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Migrations: roda uma vez, termina, e a API só sobe depois
+  # ---------------------------------------------------------------------------
+  migrations:
+    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # "no" e não "unless-stopped": este serviço deve rodar uma vez e encerrar. Com política de
+    # reinício, ele voltaria em laço para aplicar migrations que já foram aplicadas.
+    restart: "no"
+    command: ["--aplicar-migracoes"]
+    environment:
+      ConnectionStrings__Dizido: "Host=db;Port=5432;Database=dizido;Username=dizido;Password=${POSTGRES_PASSWORD:?}"
+      # A aplicação valida a chave JWT no start mesmo neste modo, então ela precisa estar aqui.
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?}
+      Jwt__Issuer: ${DIZIDO_DOMINIO}
+      Jwt__Audience: ${DIZIDO_DOMINIO}
+      ConnectionStrings__Redis: "cache:6379"
+      Storage__Endpoint: "http://storage:9000"
+      Storage__AccessKey: ${MINIO_ROOT_USER:?}
+      Storage__SecretKey: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # A aplicação
+  # ---------------------------------------------------------------------------
+  api:
+    image: ghcr.io/${DIZIDO_REPO:-israel/dizido}:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ConnectionStrings__Dizido: "Host=db;Port=5432;Database=dizido;Username=dizido;Password=${POSTGRES_PASSWORD:?}"
+      ConnectionStrings__Redis: "cache:6379"
+
+      Jwt__Issuer: ${DIZIDO_DOMINIO}
+      Jwt__Audience: ${DIZIDO_DOMINIO}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?}
+      Jwt__AccessTokenLifetime: "00:15:00"
+      Jwt__RefreshTokenLifetime: "30.00:00:00"
+
+      # A API fala com o storage pelo nome interno; as URLs que o navegador recebe são
+      # assinadas com o endereço público. A assinatura inclui o host, e é por isso que os
+      # dois precisam ser declarados separadamente.
+      Storage__Endpoint: "http://storage:9000"
+      Storage__PublicEndpoint: "https://arquivos.${DIZIDO_DOMINIO}"
+      Storage__AccessKey: ${MINIO_ROOT_USER:?}
+      Storage__SecretKey: ${MINIO_ROOT_PASSWORD:?}
+
+      # Vazio desliga o exportador. Aponte para um coletor quando quiser enxergar os traces.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-}
+
+    healthcheck:
+      # É o /health, não o /health/ready: aqui a pergunta é "o processo está de pé?".
+      # Usar o readiness faria o compose recusar a subir a API enquanto o banco demorasse,
+      # quando o certo é ela subir e reportar que ainda não está pronta.
+      test: ["CMD", "dotnet", "--info"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      # A parte que importa: a API não começa a subir antes de a migração terminar BEM.
+      # Se ela falhar, nada sobe — melhor do que uma versão nova contra um banco velho.
+      migrations:
+        condition: service_completed_successfully
+
+  # ---------------------------------------------------------------------------
+  # Dados
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dizido
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: dizido
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dizido -d dizido"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # appendonly liga a persistência. A presença pode ser perdida sem dor, mas um Redis que
+    # esquece tudo a cada reinício também esvazia o backplane no meio de uma reconexão.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  storage:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+      # Só o domínio do app pode fazer PUT direto daqui. "*" em produção deixaria qualquer
+      # site usar uma URL assinada vazada.
+      MINIO_API_CORS_ALLOW_ORIGIN: "https://${DIZIDO_DOMINIO}"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Backup
+  # ---------------------------------------------------------------------------
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      # Quantos dias de backup guardar.
+      RETENCAO_DIAS: ${BACKUP_RETENCAO_DIAS:-14}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - backups:/backups
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  backups:
+  caddy_data:
+  caddy_config:
