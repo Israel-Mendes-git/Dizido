@@ -16,6 +16,19 @@ public sealed class Conversation
 {
     public const int MaxTitleLength = 60;
 
+    /// <summary>Quantos membros ativos um grupo comporta.</summary>
+    /// <remarks>
+    /// O limite não é de armazenamento — a tabela aguentaria muito mais. É do tempo real:
+    /// cada mensagem enviada precisa alcançar todas as conexões do grupo, então o custo de
+    /// entrega cresce com o tamanho. E toda operação de administração carrega a lista inteira
+    /// de membros para montar a resposta.
+    /// <para>
+    /// Um número redondo e generoso, que ninguém alcança por acidente. Se um dia fizer falta,
+    /// subi-lo exige antes resolver a entrega — não é só trocar a constante.
+    /// </para>
+    /// </remarks>
+    public const int MaxMembers = 256;
+
     private readonly List<ConversationMember> _members = [];
 
     private Conversation() { }
@@ -101,6 +114,12 @@ public sealed class Conversation
             "Conversa direta tem exatamente dois participantes e não aceita novos membros.");
 
         RequireAtLeast(actorId, MemberRole.Admin, "adicionar membros");
+
+        // Conta só os ativos: quem saiu não ocupa vaga, mas a linha dele continua no banco
+        // para que os avisos de sistema antigos consigam resolver o nome.
+        DomainException.Require(
+            ActiveMembers.Count() < MaxMembers,
+            $"O grupo já tem o máximo de {MaxMembers} participantes.");
 
         var existing = FindMember(userId);
 

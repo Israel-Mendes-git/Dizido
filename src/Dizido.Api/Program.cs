@@ -110,19 +110,71 @@ builder.Services.AddAuthorization();
 builder.Services.AddScoped<ICurrentUser, JwtCurrentUser>();
 builder.Services.AddSingleton<IAccessTokenService, AccessTokenService>();
 
-// Sem isto, tentar senhas em sequência custa nada ao atacante. O limite é por IP e vale
-// para todos os endpoints de autenticação.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.AddPolicy("auth", http => RateLimitPartition.GetFixedWindowLimiter(
+    // ----- autenticação: por IP -----
+    //
+    // Sem isto, tentar senhas em sequência não custa nada ao atacante. Aqui a partição é o
+    // IP porque quem tenta entrar ainda não tem identidade — é justamente o que ele procura.
+    options.AddPolicy(LimitesDeUso.Auth, http => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: http.Connection.RemoteIpAddress?.ToString() ?? "desconhecido",
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 10,
             Window = TimeSpan.FromMinutes(1),
         }));
+
+    // ----- envio de mensagem: por USUÁRIO -----
+    //
+    // Por usuário, e não por IP: uma escola, um escritório ou uma operadora móvel colocam
+    // centenas de pessoas atrás do mesmo endereço. Limitar por IP puniria todas elas por
+    // causa de uma, e o limite teria de ser tão alto que deixaria de limitar.
+    //
+    // Token bucket, e não janela fixa: colar um texto longo em três partes seguidas é uso
+    // normal, e uma janela fixa recusaria a terceira. O balde acumula folga enquanto a pessoa
+    // não escreve, permite a rajada, e ainda assim segura o ritmo sustentado.
+    options.AddPolicy(LimitesDeUso.Mensagens, http => RateLimitPartition.GetTokenBucketLimiter(
+        partitionKey: LimitesDeUso.ParticaoDe(http),
+        factory: _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 30,
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(1),
+            AutoReplenishment = true,
+            QueueLimit = 0,
+        }));
+
+    // ----- upload: por USUÁRIO, e bem mais apertado -----
+    //
+    // Cada pedido autoriza até 50 MB e reserva uma linha no banco. Sem limite, um laço de
+    // três linhas enche o bucket e a tabela de anexos de graça — e o custo é de quem hospeda.
+    options.AddPolicy(LimitesDeUso.Uploads, http => RateLimitPartition.GetTokenBucketLimiter(
+        partitionKey: LimitesDeUso.ParticaoDe(http),
+        factory: _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 10,
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(6),
+            AutoReplenishment = true,
+            QueueLimit = 0,
+        }));
+
+    // Diz quanto esperar em vez de só recusar. Um cliente que sabe o tempo pode aguardar;
+    // um que não sabe fica tentando, o que piora exatamente o problema que o limite resolve.
+    options.OnRejected = async (contexto, ct) =>
+    {
+        if (contexto.Lease.TryGetMetadata(MetadataName.RetryAfter, out var espera))
+        {
+            contexto.HttpContext.Response.Headers.RetryAfter =
+                ((int)espera.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        await contexto.HttpContext.Response.WriteAsJsonAsync(
+            new { title = "Muitas requisições", detail = "Espere um pouco antes de tentar de novo." },
+            ct);
+    };
 });
 
 // ---------------------------------------------------------------------------
@@ -230,12 +282,18 @@ if (app.Environment.IsDevelopment())
 // não carrega credenciais, e precisa ser respondida antes de qualquer verificação de token.
 app.UseCors();
 
-app.UseRateLimiter();
-
 // Ordem obrigatória: autenticação ("quem é você") antes de autorização ("você pode?").
 // Invertido, a autorização rodaria sem saber quem é o usuário e negaria tudo.
 app.UseAuthentication();
 app.UseAuthorization();
+
+// DEPOIS da autenticação, e isto não é detalhe de arrumação.
+//
+// As políticas de mensagem e upload particionam a contagem pelo id do usuário, lido de
+// HttpContext.User. Com o limitador antes do UseAuthentication, esse User ainda está vazio:
+// todas as requisições cairiam na partição de IP, e um escritório inteiro dividiria a mesma
+// cota. Pior, nada falharia — o limite continuaria "funcionando", só que na chave errada.
+app.UseRateLimiter();
 
 app.MapGet("/", () => Results.Ok(new { service = "Dizido.Api", status = "ok" }))
    .ExcludeFromDescription()
@@ -245,7 +303,7 @@ app.MapGet("/", () => Results.Ok(new { service = "Dizido.Api", status = "ok" }))
 // tem como se autenticar. É por isso que a resposta não carrega stack trace.
 app.MapHealthEndpoints();
 
-app.MapAuthEndpoints().RequireRateLimiting("auth");
+app.MapAuthEndpoints().RequireRateLimiting(LimitesDeUso.Auth);
 
 // RequireAuthorization no grupo inteiro: qualquer endpoint novo já nasce protegido.
 // O contrário — proteger um por um — significa que esquecer uma linha abre um buraco em

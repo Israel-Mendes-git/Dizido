@@ -8,6 +8,9 @@ namespace Dizido.Api.Endpoints;
 
 internal static class UserEndpoints
 {
+    private const int DefaultPageSize = 50;
+    private const int MaxPageSize = 100;
+
     public static RouteGroupBuilder MapUserEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/users").WithTags("Users");
@@ -40,11 +43,35 @@ internal static class UserEndpoints
             return user is null ? Results.NotFound() : Results.Ok(user.ToResponse());
         });
 
-        group.MapGet("/", async (DizidoDbContext db, CancellationToken ct) =>
+        // Lista de pessoas, com busca e teto.
+        //
+        // Antes esta rota devolvia TODOS os perfis, sem limite: com mil contas, mil linhas
+        // atravessavam a rede a cada vez que alguém abria "nova conversa" — e o cliente
+        // renderizava as mil. O teto resolve isso; a busca é o que torna o teto usável, porque
+        // com ele a pessoa que você procura pode não estar nos primeiros cinquenta.
+        group.MapGet("/", async (
+            DizidoDbContext db,
+            CancellationToken ct,
+            string? busca = null,
+            int? limite = null) =>
         {
-            var users = await db.Profiles
-                .AsNoTracking()
+            var take = Math.Clamp(limite ?? DefaultPageSize, 1, MaxPageSize);
+
+            var consulta = db.Profiles.AsNoTracking();
+
+            if (!string.IsNullOrWhiteSpace(busca))
+            {
+                var termo = busca.Trim();
+
+                // ILike é o LIKE sem diferenciar maiúscula do Postgres. Procurar por "ana"
+                // precisa achar "Ana" — exigir a caixa certa transformaria a busca num
+                // adivinha-como-a-pessoa-se-escreveu.
+                consulta = consulta.Where(u => EF.Functions.ILike(u.DisplayName, $"%{termo}%"));
+            }
+
+            var users = await consulta
                 .OrderBy(u => u.DisplayName)
+                .Take(take)
                 .Select(u => new UserResponse(u.Id, u.DisplayName, u.AvatarUrl, u.CreatedAt, u.LastSeenAt))
                 .ToListAsync(ct);
 

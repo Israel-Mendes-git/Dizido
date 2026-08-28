@@ -23,6 +23,8 @@ internal static class MessageEndpoints
         var group = routes.MapGroup("/api/conversations/{conversationId:guid}/messages")
             .WithTags("Messages");
 
+        // Só o envio é limitado; ler histórico continua livre. Limitar a leitura puniria
+        // quem rola uma conversa longa para trás, que é uso comum e barato para o servidor.
         group.MapPost("/", async (
             Guid conversationId,
             SendMessageRequest request,
@@ -109,7 +111,7 @@ internal static class MessageEndpoints
             await hub.Clients.Group(ChatHub.GroupName(conversationId)).MessageReceived(response);
 
             return Results.Created($"/api/conversations/{conversationId}/messages/{message.Id}", response);
-        });
+        }).RequireRateLimiting(LimitesDeUso.Mensagens);
 
         // Editar. As regras — só o autor, não edita apagada, não edita aviso de sistema — já
         // estavam no domínio desde a Fase 1, testadas, e sem nenhuma porta que chegasse até elas.

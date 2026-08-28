@@ -263,4 +263,46 @@ public sealed class ConversationTests
         Assert.Equal(ate, grupo.FindMember(Bruno)!.MutedUntil);
         Assert.Null(grupo.FindMember(Carla)!.MutedUntil);
     }
+    /// <summary>
+    /// O grupo tem teto. O limite não é de armazenamento — é do tempo real: cada mensagem
+    /// precisa alcançar todas as conexões, e toda operação de administração carrega a lista
+    /// inteira de membros.
+    /// </summary>
+    [Fact]
+    public void GrupoCheioNaoAceitaMaisNinguem()
+    {
+        var grupo = Conversation.CreateGroup("Rapadura Atômica", Alice, Now);
+
+        // A dona já conta como um.
+        for (var i = 1; i < Conversation.MaxMembers; i++)
+        {
+            grupo.AddMember(Alice, Guid.CreateVersion7(), Now);
+        }
+
+        var erro = Assert.Throws<DomainException>(() => grupo.AddMember(Alice, Bruno, Now));
+
+        Assert.Contains("máximo", erro.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Quem saiu não ocupa vaga: a linha fica, mas o lugar volta a existir.</summary>
+    [Fact]
+    public void QuemSaiuLiberaVagaNoGrupo()
+    {
+        var grupo = Conversation.CreateGroup("Rapadura Atômica", Alice, Now);
+        var saindo = new List<Guid>();
+
+        for (var i = 1; i < Conversation.MaxMembers; i++)
+        {
+            var id = Guid.CreateVersion7();
+            grupo.AddMember(Alice, id, Now);
+            saindo.Add(id);
+        }
+
+        Assert.Throws<DomainException>(() => grupo.AddMember(Alice, Bruno, Now));
+
+        grupo.RemoveMember(saindo[0], saindo[0], Now);
+
+        grupo.AddMember(Alice, Bruno, Now);
+        Assert.True(grupo.IsActiveMember(Bruno));
+    }
 }

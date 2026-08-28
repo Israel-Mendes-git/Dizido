@@ -42,6 +42,20 @@
 	}
 
 	header {
+		# Content-Security-Policy: a última linha de defesa contra XSS.
+		#
+		# Se apesar de tudo alguém conseguir injetar um <script> na página, esta política diz
+		# ao navegador para não executá-lo — só roda script vindo da própria origem. Num app
+		# que exibe imagens enviadas por usuários, isso não é exagero.
+		#
+		# 'wasm-unsafe-eval' é obrigatório: o Blazor WebAssembly compila e executa o próprio
+		# runtime, e sem essa permissão a aplicação nem carrega. É bem mais restrito que o
+		# 'unsafe-eval' completo — libera WebAssembly, não eval() de JavaScript.
+		#
+		# img-src inclui o subdomínio dos anexos e data: (as miniaturas embutidas do Blazor).
+		# connect-src inclui wss: porque o SignalR abre WebSocket.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://arquivos.{$DIZIDO_DOMINIO}; connect-src 'self' wss://{$DIZIDO_DOMINIO} https://arquivos.{$DIZIDO_DOMINIO}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
 		# O navegador não deve adivinhar o tipo de um arquivo pelo conteúdo. É a defesa que
 		# acompanha o Content-Disposition dos anexos: mesmo que algo escape, não vira HTML.
 		X-Content-Type-Options nosniff

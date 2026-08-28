@@ -1,3 +1,4 @@
+using Dizido.Api;
 using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
 using Dizido.Api.Observabilidade;
@@ -75,7 +76,10 @@ internal static class AttachmentEndpoints
                 anexo.ContentType,
                 anexo.Kind == AttachmentKind.Image ? Attachment.MaxImageBytes : Attachment.MaxFileBytes,
                 clock.GetUtcNow().Add(options.Value.UploadUrlLifetime)));
-        });
+
+        // O limite fica no pedido, e não na confirmação: é ele que reserva a linha no banco
+        // e autoriza os 50 MB. A confirmação só existe para quem já passou por aqui.
+        }).RequireRateLimiting(LimitesDeUso.Uploads);
 
         group.MapPost("/attachments/{id:guid}/complete", async (
             Guid id,
