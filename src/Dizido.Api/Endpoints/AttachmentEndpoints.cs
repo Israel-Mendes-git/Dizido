@@ -1,5 +1,6 @@
 using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
+using Dizido.Api.Observabilidade;
 using Dizido.Contracts.Attachments;
 using Dizido.Domain;
 using Dizido.Domain.Entities;
@@ -84,6 +85,7 @@ internal static class AttachmentEndpoints
             IThumbnailer thumbnailer,
             AttachmentPresenter presenter,
             TimeProvider clock,
+            DizidoMetrics metrics,
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { } me)
@@ -164,6 +166,8 @@ internal static class AttachmentEndpoints
             anexo.Confirm(tipoReal, objeto.SizeBytes, clock.GetUtcNow(), largura, altura, chaveDaMiniatura);
 
             await db.SaveChangesAsync(ct);
+
+            metrics.AnexoConfirmado(anexo.Kind.ToString(), anexo.SizeBytes);
 
             return Results.Ok(presenter.Present(anexo));
         });

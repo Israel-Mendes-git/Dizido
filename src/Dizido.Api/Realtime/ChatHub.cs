@@ -1,4 +1,5 @@
 using Dizido.Api.Auth;
+using Dizido.Api.Observabilidade;
 using Dizido.Contracts.Realtime;
 using Dizido.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -28,6 +29,7 @@ public sealed partial class ChatHub(
     ICurrentUser currentUser,
     DizidoDbContext db,
     IPresenceTracker presence,
+    DizidoMetrics metrics,
     ILogger<ChatHub> logger) : Hub<IChatClient>
 {
     public static string GroupName(Guid conversationId) => $"conversation:{conversationId}";
@@ -64,6 +66,8 @@ public sealed partial class ChatHub(
             await BroadcastPresenceAsync(me, isOnline: true, conversationIds);
         }
 
+        metrics.ConexaoAberta();
+
         LogConnected(logger, me, Context.ConnectionId, conversationIds.Count);
 
         await base.OnConnectedAsync();
@@ -85,6 +89,12 @@ public sealed partial class ChatHub(
 
                 await BroadcastPresenceAsync(me, isOnline: false, conversationIds);
             }
+
+            // Dentro do if, e não fora: a conexão sem usuário identificado é abortada no
+            // OnConnectedAsync sem nunca ter sido contada. Decrementar aqui deixaria o
+            // contador de conexões abertas caminhando para o negativo a cada tentativa
+            // rejeitada — e um gráfico negativo é pior do que nenhum gráfico.
+            metrics.ConexaoFechada();
         }
 
         // Não removemos das Groups manualmente: o SignalR já limpa as inscrições de uma

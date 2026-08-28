@@ -1,5 +1,6 @@
 using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
+using Dizido.Api.Observabilidade;
 using Dizido.Api.Realtime;
 using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Messages;
@@ -29,6 +30,7 @@ internal static class MessageEndpoints
             TimeProvider clock,
             IHubContext<ChatHub, IChatClient> hub,
             AttachmentPresenter presenter,
+            DizidoMetrics metrics,
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { } me)
@@ -91,6 +93,8 @@ internal static class MessageEndpoints
             await db.SaveChangesAsync(ct);
 
             var response = await ToResponseAsync(message, db, presenter, ct);
+
+            metrics.MensagemEnviada(message.Kind.ToString());
 
             // Notifica todo mundo na conversa, inclusive quem enviou.
             //

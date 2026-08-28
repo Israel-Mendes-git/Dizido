@@ -3,6 +3,7 @@ using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
 using Dizido.Api.Endpoints;
 using Dizido.Api.Health;
+using Dizido.Api.Observabilidade;
 using Dizido.Infrastructure;
 using Dizido.Infrastructure.Identity;
 using Dizido.Api.Realtime;
@@ -16,6 +17,11 @@ using StackExchange.Redis;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Observabilidade primeiro: assim um erro em qualquer registro abaixo já sai no formato certo,
+// em vez de no logger padrão que seria substituído logo depois.
+builder.UsarSerilog();
+builder.UsarOpenTelemetry();
 
 // Registra o DizidoDbContext e a conexão com o Postgres.
 // A API não menciona Npgsql em lugar nenhum — isso é detalhe da Infrastructure.
@@ -216,6 +222,10 @@ var app = builder.Build();
 await app.Services.GetRequiredService<IObjectStorage>().EnsureBucketAsync();
 
 app.UseExceptionHandler();
+
+// Depois do tratador de exceções, para que uma requisição que estourou apareça no log com o
+// status final (500) e não com o que ela tinha antes de o tratador agir.
+app.UsarLogDeRequisicoes();
 
 if (app.Environment.IsDevelopment())
 {
