@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
 namespace Dizido.Api.Tests;
@@ -44,6 +45,12 @@ public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLif
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .Build();
 
+    // MinIO de verdade também, e pela mesma razão do banco. A parte que mais interessa
+    // testar no upload é o que acontece entre a API e o storage: a URL assinada vale, os
+    // bytes que chegaram são os que o servidor lê, o objeto recusado some do bucket. Um
+    // storage falso em memória responderia "sim" para tudo isso sem provar nada.
+    private readonly MinioContainer _minio = new MinioBuilder("minio/minio:latest").Build();
+
     /// <summary>Um usuário de teste já criado no banco, com um token de acesso válido.</summary>
     public sealed record Usuario(Guid Id, string Nome, string Token);
 
@@ -61,6 +68,11 @@ public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLif
                 // O Program.cs exige a chave presente, mas nada aqui conecta ao Redis:
                 // o IConnectionMultiplexer é removido logo abaixo.
                 ["ConnectionStrings:Redis"] = "localhost:6379",
+
+                ["Storage:Endpoint"] = $"http://{_minio.Hostname}:{_minio.GetMappedPublicPort(9000)}",
+                ["Storage:AccessKey"] = _minio.GetAccessKey(),
+                ["Storage:SecretKey"] = _minio.GetSecretKey(),
+                ["Storage:Bucket"] = "dizido-testes",
             }));
 
         builder.ConfigureTestServices(services =>
@@ -82,7 +94,9 @@ public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLif
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
+        // Os dois contêineres em paralelo: são independentes, e esperar um depois do outro
+        // dobraria o tempo de arranque da suíte inteira.
+        await Task.WhenAll(_postgres.StartAsync(), _minio.StartAsync());
 
         // Migrations, e não EnsureCreated: assim o esquema testado é exatamente o que o deploy
         // vai aplicar. EnsureCreated monta as tabelas a partir do modelo e passaria por cima de
@@ -161,6 +175,7 @@ public sealed class DizidoApiFactory : WebApplicationFactory<Program>, IAsyncLif
     {
         await base.DisposeAsync();
         await _postgres.DisposeAsync();
+        await _minio.DisposeAsync();
     }
 }
 

@@ -47,7 +47,27 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
 
             // O MinIO ignora a região, mas o SDK precisa de uma para compor a assinatura.
             AuthenticationRegion = _options.Region,
+
+            UseHttp = !EhHttps(endpoint),
         });
+
+    /// <summary>
+    /// O esquema que a URL assinada deve usar.
+    /// </summary>
+    /// <remarks>
+    /// Precisa ser dito explicitamente em cada pedido de assinatura. O <c>UseHttp</c> da
+    /// configuração vale para as chamadas que o SDK faz, mas a URL <b>assinada</b> sai em
+    /// <c>https://</c> de qualquer jeito — mesmo com o <c>ServiceURL</c> em <c>http://</c>.
+    /// O sintoma do outro lado é "Cannot determine the frame size or a corrupted frame was
+    /// received", que não sugere em nada que o problema é o esquema da URL.
+    /// </remarks>
+    private Protocol ProtocoloDaAssinatura =>
+        EhHttps(_options.PublicEndpoint is { Length: > 0 } publico ? publico : _options.Endpoint)
+            ? Protocol.HTTPS
+            : Protocol.HTTP;
+
+    private static bool EhHttps(string endpoint) =>
+        endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
     public async Task EnsureBucketAsync(CancellationToken ct = default)
     {
@@ -65,6 +85,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             BucketName = _options.Bucket,
             Key = key,
             Verb = HttpVerb.PUT,
+            Protocol = ProtocoloDaAssinatura,
             Expires = DateTime.UtcNow.Add(_options.UploadUrlLifetime),
 
             // Amarrar o Content-Type na assinatura: o cliente é obrigado a enviar exatamente
@@ -80,6 +101,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             BucketName = _options.Bucket,
             Key = key,
             Verb = HttpVerb.GET,
+            Protocol = ProtocoloDaAssinatura,
             Expires = DateTime.UtcNow.Add(_options.DownloadUrlLifetime),
 
             // O objeto foi gravado com o tipo que o cliente declarou. Aqui mandamos o storage

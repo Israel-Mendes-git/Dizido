@@ -1,10 +1,12 @@
 using Dizido.Api;
+using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
 using Dizido.Api.Endpoints;
 using Dizido.Infrastructure;
 using Dizido.Infrastructure.Identity;
 using Dizido.Api.Realtime;
 using Dizido.Infrastructure.Persistence;
+using Dizido.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
@@ -24,6 +26,10 @@ builder.Services.AddDizidoInfrastructure(builder.Configuration);
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddHttpContextAccessor();
+
+// Assina as URLs temporárias dos anexos. Scoped por hábito, não por necessidade — ele não
+// guarda estado; o que guarda estado é o IObjectStorage, que é singleton na Infrastructure.
+builder.Services.AddScoped<AttachmentPresenter>();
 
 // ---------------------------------------------------------------------------
 // Autenticação
@@ -183,6 +189,15 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+// O bucket precisa existir antes do primeiro upload, e criá-lo é idempotente. Fica aqui, e
+// não numa migration ou num passo manual de instalação, porque é a única dependência do
+// storage que a aplicação tem — e esquecer de criá-lo dá um erro obscuro na primeira foto.
+//
+// Diferente das migrations do banco, que ficam de fora do Program.cs de propósito: com duas
+// instâncias subindo juntas, as duas tentariam migrar ao mesmo tempo. Criar bucket que já
+// existe não é problema; aplicar a mesma migration duas vezes, é.
+await app.Services.GetRequiredService<IObjectStorage>().EnsureBucketAsync();
+
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
@@ -215,6 +230,7 @@ app.MapConversationEndpoints().RequireAuthorization();
 app.MapMessageEndpoints().RequireAuthorization();
 app.MapSyncEndpoints().RequireAuthorization();
 app.MapGroupEndpoints().RequireAuthorization();
+app.MapAttachmentEndpoints().RequireAuthorization();
 
 // O hub fica em /hubs/chat — o mesmo prefixo que o JwtBearerEvents aceita token por
 // query string, porque WebSocket nao permite cabecalho Authorization no handshake.

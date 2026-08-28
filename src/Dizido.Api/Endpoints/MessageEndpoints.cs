@@ -1,10 +1,12 @@
+using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
 using Dizido.Api.Realtime;
-using Dizido.Contracts.Realtime;
-using Microsoft.AspNetCore.SignalR;
+using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Messages;
+using Dizido.Contracts.Realtime;
 using Dizido.Domain.Entities;
 using Dizido.Infrastructure.Persistence;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Dizido.Api.Endpoints;
@@ -26,6 +28,7 @@ internal static class MessageEndpoints
             DizidoDbContext db,
             TimeProvider clock,
             IHubContext<ChatHub, IChatClient> hub,
+            AttachmentPresenter presenter,
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { } me)
@@ -44,7 +47,7 @@ internal static class MessageEndpoints
 
             if (duplicate is not null)
             {
-                return Results.Ok(await ToResponseAsync(duplicate, db, ct));
+                return Results.Ok(await ToResponseAsync(duplicate, db, presenter, ct));
             }
 
             var conversation = await db.Conversations
@@ -56,15 +59,29 @@ internal static class MessageEndpoints
                 return Results.NotFound();
             }
 
-            // Toda a validação (membro ativo, corpo não vazio, tamanho) mora no domínio.
-            // Se algo estiver errado, sai DomainException e o DomainExceptionHandler
-            // converte em 400 — este endpoint não tem um único try/catch.
+            Attachment? attachment = null;
+
+            if (request.AttachmentId is { } attachmentId)
+            {
+                attachment = await db.Attachments.FirstOrDefaultAsync(a => a.Id == attachmentId, ct);
+
+                if (attachment is null)
+                {
+                    return Results.NotFound(new { message = "Anexo não encontrado." });
+                }
+            }
+
+            // Toda a validação (membro ativo, corpo não vazio, tamanho, e se o anexo é mesmo
+            // desta conversa e desta pessoa) mora no domínio. Se algo estiver errado, sai
+            // DomainException e o DomainExceptionHandler converte em 400 — este endpoint não
+            // tem um único try/catch.
             var message = conversation.PostMessage(
                 me,
                 request.Body,
                 request.ClientMessageId,
                 clock.GetUtcNow(),
-                request.ReplyToMessageId);
+                request.ReplyToMessageId,
+                attachment);
 
             db.Messages.Add(message);
 
@@ -73,7 +90,7 @@ internal static class MessageEndpoints
             // nunca mostra "agora mesmo" para uma conversa cuja mensagem não foi gravada.
             await db.SaveChangesAsync(ct);
 
-            var response = await ToResponseAsync(message, db, ct);
+            var response = await ToResponseAsync(message, db, presenter, ct);
 
             // Notifica todo mundo na conversa, inclusive quem enviou.
             //
@@ -93,6 +110,7 @@ internal static class MessageEndpoints
             Guid conversationId,
             ICurrentUser currentUser,
             DizidoDbContext db,
+            AttachmentPresenter presenter,
             CancellationToken ct,
             Guid? before = null,
             int? limit = null) =>
@@ -128,7 +146,11 @@ internal static class MessageEndpoints
                 .Where(u => senderIds.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
 
-            var items = messages.Select(m => ToResponse(m, names.GetValueOrDefault(m.SenderId, "(desconhecido)"))).ToList();
+            var anexos = await AnexosAsync(db, presenter, messages, ct);
+
+            var items = messages
+                .Select(m => ToResponse(m, names.GetValueOrDefault(m.SenderId, "(desconhecido)"), anexos))
+                .ToList();
 
             return Results.Ok(new MessagePage(items, hasMore ? messages[^1].Id : null));
         });
@@ -177,6 +199,7 @@ internal static class MessageEndpoints
     private static async Task<MessageResponse> ToResponseAsync(
         Message message,
         DizidoDbContext db,
+        AttachmentPresenter presenter,
         CancellationToken ct)
     {
         var name = await db.Profiles
@@ -185,11 +208,54 @@ internal static class MessageEndpoints
             .Select(u => u.DisplayName)
             .FirstOrDefaultAsync(ct);
 
-        return ToResponse(message, name ?? "(desconhecido)");
+        var anexos = await AnexosAsync(db, presenter, [message], ct);
+
+        return ToResponse(message, name ?? "(desconhecido)", anexos);
     }
 
-    private static MessageResponse ToResponse(Message m, string senderDisplayName, string? targetName = null) =>
+    /// <summary>
+    /// Busca de uma vez os anexos de um lote de mensagens e já os apresenta.
+    /// </summary>
+    /// <remarks>
+    /// Uma consulta para a página inteira, e não uma por mensagem. É o mesmo N+1 que a lista
+    /// de conversas evita ao resolver os nomes: cinquenta mensagens com foto virariam
+    /// cinquenta idas ao banco.
+    /// </remarks>
+    private static async Task<Dictionary<Guid, AttachmentResponse>> AnexosAsync(
+        DizidoDbContext db,
+        AttachmentPresenter presenter,
+        IReadOnlyList<Message> messages,
+        CancellationToken ct)
+    {
+        var ids = messages
+            .Where(m => m.AttachmentId is not null && !m.IsDeleted)
+            .Select(m => m.AttachmentId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var anexos = await db.Attachments
+            .AsNoTracking()
+            .Where(a => ids.Contains(a.Id))
+            .ToListAsync(ct);
+
+        return anexos.ToDictionary(a => a.Id, presenter.Present);
+    }
+
+    private static MessageResponse ToResponse(
+        Message m,
+        string senderDisplayName,
+        Dictionary<Guid, AttachmentResponse> anexos,
+        string? targetName = null) =>
         new(m.Id, m.ConversationId, m.SenderId, senderDisplayName, m.Body, m.ClientMessageId,
             m.ReplyToMessageId, m.SentAt, m.EditedAt, m.IsDeleted,
-            m.Kind.ToString(), m.SystemEvent?.ToString(), m.SystemTargetId, targetName);
+            m.Kind.ToString(), m.SystemEvent?.ToString(), m.SystemTargetId, targetName,
+
+            // Mensagem apagada não devolve anexo: o balão vira "esta mensagem foi apagada",
+            // e a foto não tem por que continuar aparecendo.
+            m.AttachmentId is { } id && !m.IsDeleted ? anexos.GetValueOrDefault(id) : null);
 }

@@ -8,7 +8,12 @@ namespace Dizido.Contracts.Messages;
 /// </param>
 /// <param name="Body">Texto da mensagem.</param>
 /// <param name="ReplyToMessageId">Mensagem sendo respondida, se for uma resposta.</param>
+/// <param name="AttachmentId">
+/// Anexo já enviado e confirmado. Com ele, o <paramref name="Body"/> vira legenda e pode ficar
+/// vazio — mandar foto sem escrever nada é o caso mais comum.
+/// </param>
 public sealed record SendMessageRequest(
     Guid ClientMessageId,
     string Body,
-    Guid? ReplyToMessageId = null);
+    Guid? ReplyToMessageId = null,
+    Guid? AttachmentId = null);
