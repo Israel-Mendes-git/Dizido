@@ -1,0 +1,71 @@
+# Infraestrutura de desenvolvimento do Dizido.
+#
+#   docker compose up -d      sobe tudo em segundo plano
+#   docker compose ps         mostra o estado dos serviços
+#   docker compose logs -f db acompanha os logs do banco
+#   docker compose down       para tudo (os dados ficam, estão em volumes)
+#   docker compose down -v    para tudo E APAGA os dados
+#
+# Estas credenciais são de desenvolvimento local e ficam no git de propósito:
+# não existe segredo real aqui. Em produção elas vêm de variáveis de ambiente.
+
+services:
+
+  db:
+    image: postgres:16-alpine
+    container_name: dizido-db
+    # Sobe sozinho quando o Docker Desktop inicia. "unless-stopped" (e não "always")
+    # respeita um "docker compose stop" manual: se você parou de propósito, fica parado.
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dizido
+      POSTGRES_PASSWORD: dizido_dev
+      POSTGRES_DB: dizido
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # O healthcheck faz o Docker saber quando o Postgres realmente aceita conexões.
+    # Sem isso, "container no ar" != "banco pronto", e a API falha ao subir junto.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dizido -d dizido"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cache:
+    image: redis:7-alpine
+    container_name: dizido-cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MinIO fala o protocolo S3. O mesmo código que sobe arquivo aqui funciona,
+  # sem alteração, contra AWS S3 / Cloudflare R2 / Backblaze B2 depois.
+  storage:
+    image: minio/minio:latest
+    container_name: dizido-storage
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: dizido
+      MINIO_ROOT_PASSWORD: dizido_dev_secret
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # console web -> http://localhost:9001
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  miniodata:

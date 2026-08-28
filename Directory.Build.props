@@ -1,0 +1,35 @@
+<Project>
+
+  <!--
+    Este arquivo é importado automaticamente por TODO .csproj abaixo desta pasta.
+    Nenhum projeto precisa referenciá-lo. É aqui que ficam as configurações comuns,
+    para não repetir (e não divergir) as mesmas linhas em 9 arquivos.
+  -->
+
+  <PropertyGroup>
+    <!-- Alvo único de todos os projetos. Migrar de versão do .NET = trocar SÓ esta linha. -->
+    <TargetFramework>net10.0</TargetFramework>
+
+    <LangVersion>latest</LangVersion>
+
+    <!--
+      Nullable reference types: o compilador passa a distinguir `string` (nunca nulo)
+      de `string?` (pode ser nulo) e avisa quando você usa um possivelmente nulo sem
+      checar. É o mais perto que C# chega de garantir ausência de NullReferenceException.
+      Ligar depois, com código pronto, gera centenas de avisos de uma vez — por isso, agora.
+    -->
+    <Nullable>enable</Nullable>
+
+    <!-- Os `using` mais comuns (System, System.Linq, ...) ficam implícitos em todo arquivo. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Aviso vira erro: impede que a lista de avisos cresça até virar ruído ignorado. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!-- Build determinístico: mesma entrada gera binário idêntico (útil em CI). -->
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>
