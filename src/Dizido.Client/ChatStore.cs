@@ -371,6 +371,8 @@ public sealed class ChatStore(
 
     public async Task MarcarLidoAsync(Guid conversationId)
     {
+        ZerarNaoLidas(conversationId);
+
         var ultima = MensagensDe(conversationId).LastOrDefault(m => !m.EhProvisoria);
 
         if (ultima is not null)
@@ -530,6 +532,8 @@ public sealed class ChatStore(
     {
         Confirmar(mensagem);
 
+        ContarSeNaoLida(mensagem);
+
         var conversa = Conversas.FindIndex(c => c.Id == mensagem.ConversationId);
 
         // Só reordena se a mensagem for realmente mais recente do que a última conhecida.
@@ -546,6 +550,53 @@ public sealed class ChatStore(
         }
 
         Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Ajusta o contador de não lidas quando uma mensagem chega.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// O número vem do servidor a cada carregamento da lista, mas entre um e outro chegam
+    /// mensagens pelo tempo real. Sem este ajuste, o contador só mudaria ao recarregar — e o
+    /// usuário veria a conversa pular para o topo sem nenhum sinal de quantas chegaram.
+    /// </para>
+    /// <para>
+    /// Não conta se a conversa está aberta (você está lendo), nem se a mensagem é sua, nem
+    /// se é aviso de sistema — as mesmas três exclusões que o servidor aplica. Manter as duas
+    /// contas com a mesma regra é o que impede o número de "corrigir sozinho" na próxima carga.
+    /// </para>
+    /// </remarks>
+    private void ContarSeNaoLida(MessageResponse mensagem)
+    {
+        if (mensagem.ConversationId == ConversaAtiva
+            || mensagem.SenderId == session.UserId
+            || mensagem.Kind == "System")
+        {
+            return;
+        }
+
+        var indice = Conversas.FindIndex(c => c.Id == mensagem.ConversationId);
+
+        if (indice >= 0)
+        {
+            Conversas[indice] = Conversas[indice] with
+            {
+                UnreadCount = Conversas[indice].UnreadCount + 1,
+            };
+        }
+    }
+
+    /// <summary>Zera o contador da conversa que acabou de ser lida.</summary>
+    private void ZerarNaoLidas(Guid conversationId)
+    {
+        var indice = Conversas.FindIndex(c => c.Id == conversationId);
+
+        if (indice >= 0 && Conversas[indice].UnreadCount > 0)
+        {
+            Conversas[indice] = Conversas[indice] with { UnreadCount = 0 };
+            Changed?.Invoke();
+        }
     }
 
     /// <summary>

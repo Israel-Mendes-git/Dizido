@@ -38,6 +38,18 @@
                     <span class="dz-lista__titulo">@titulo</span>
                     <span class="dz-lista__sub">@Legenda(conversa)</span>
                 </div>
+
+                @* A conversa aberta não mostra contador: você está lendo, e o número piscaria
+                   e sumiria a cada mensagem que chega — chamando atenção para o que já está
+                   na sua frente. *@
+                @if (conversa.UnreadCount > 0 && conversa.Id != Ativa)
+                {
+                    <span class="dz-lista__nao-lidas @(EstaSilenciada(conversa) ? "dz-lista__nao-lidas--silenciada" : null)"
+                          aria-label="@($"{conversa.UnreadCount} não lidas")">
+                        @* Acima de 99 o número exato não informa nada e estoura o espaço. *@
+                        @(conversa.UnreadCount > 99 ? "99+" : conversa.UnreadCount.ToString())
+                    </span>
+                }
             </button>
         }
     </nav>
@@ -61,6 +73,14 @@
     [Parameter] public EventCallback AoBuscar { get; set; }
 
     [Parameter] public EventCallback AoSair { get; set; }
+
+    /// <summary>Conversa silenciada por quem está vendo.</summary>
+    /// <remarks>
+    /// O contador continua aparecendo — silenciar é não ser interrompido, não é fingir que
+    /// nada chegou. Mas ele fica discreto, sem a cor de destaque que puxa o olho.
+    /// </remarks>
+    private bool EstaSilenciada(ConversationResponse conversa) =>
+        conversa.Members.FirstOrDefault(m => m.UserId == Sessao.UserId)?.MutedUntil > DateTimeOffset.UtcNow;
 
     private static string Legenda(ConversationResponse conversa)
     {

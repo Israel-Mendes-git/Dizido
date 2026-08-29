@@ -1,3 +1,4 @@
+using Dizido.Api.Auth;
 using Dizido.Api.Realtime;
 using Dizido.Contracts.Conversations;
 using Dizido.Domain.Entities;
@@ -26,7 +27,8 @@ namespace Dizido.Api.Conversations;
 public sealed class ConversationPresenter(
     DizidoDbContext db,
     IPresenceTracker presence,
-    IObjectStorage storage)
+    IObjectStorage storage,
+    ICurrentUser currentUser)
 {
     public async Task<List<ConversationResponse>> ApresentarAsync(
         IReadOnlyList<Conversation> conversas,
@@ -58,6 +60,7 @@ public sealed class ConversationPresenter(
         var online = (await presence.FilterOnlineAsync(idsDeUsuarios)).ToHashSet();
 
         var avatares = await AvataresAsync(conversas, ct);
+        var naoLidas = await NaoLidasAsync(ct);
 
         return [.. conversas.Select(c => new ConversationResponse(
             c.Id,
@@ -74,12 +77,58 @@ public sealed class ConversationPresenter(
                     m.Role.ToString(),
                     m.LastReadMessageId,
                     online.Contains(m.UserId),
-                    m.MutedUntil))]))];
+                    m.MutedUntil))],
+            naoLidas.GetValueOrDefault(c.Id)))];
     }
 
     public async Task<ConversationResponse> ApresentarUmaAsync(
         Conversation conversa, CancellationToken ct = default) =>
         (await ApresentarAsync([conversa], ct))[0];
+
+    /// <summary>Quantas mensagens não lidas o usuário atual tem, em cada conversa dele.</summary>
+    /// <remarks>
+    /// <para>
+    /// Uma consulta só, para todas as conversas de uma vez. A alternativa — contar conversa
+    /// por conversa — seria N+1 na tela mais aberta do app inteiro.
+    /// </para>
+    /// <para>
+    /// O <c>JOIN</c> com <c>conversation_members</c> é o que permite isso: o corte de cada
+    /// conversa (<c>LastReadMessageId</c>) está numa coluna, então o banco compara linha a
+    /// linha sem a aplicação precisar mandar um cursor diferente para cada uma.
+    /// </para>
+    /// <para>
+    /// A comparação é por <c>Id</c>, que é UUIDv7 e portanto cronológico. Comparar por data
+    /// erraria em duas mensagens do mesmo milissegundo.
+    /// </para>
+    /// </remarks>
+    private async Task<Dictionary<Guid, int>> NaoLidasAsync(CancellationToken ct)
+    {
+        if (currentUser.UserId is not { } me)
+        {
+            return [];
+        }
+
+        var contagens = await db.Database
+            .SqlQuery<ContagemPorConversa>(
+                $"""
+                 SELECT m."ConversationId" AS "ConversationId", count(*)::int AS "Quantidade"
+                 FROM messages m
+                 JOIN conversation_members cm ON cm."ConversationId" = m."ConversationId"
+                 WHERE cm."UserId" = {me}
+                   AND cm."LeftAt" IS NULL
+                   AND m."SenderId" <> {me}
+                   AND m."Kind" = 1
+                   AND m."DeletedAt" IS NULL
+                   AND (cm."LastReadMessageId" IS NULL OR m."Id" > cm."LastReadMessageId")
+                 GROUP BY m."ConversationId"
+                 """)
+            .ToListAsync(ct);
+
+        return contagens.ToDictionary(c => c.ConversationId, c => c.Quantidade);
+    }
+
+    /// <summary>Linha de resultado da contagem. Existe só para dar nome às colunas.</summary>
+    private sealed record ContagemPorConversa(Guid ConversationId, int Quantidade);
 
     /// <summary>
     /// Assina as URLs dos avatares, em uma consulta para todas as conversas do lote.

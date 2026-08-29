@@ -7,7 +7,22 @@ public sealed record ConversationResponse(
     string? AvatarUrl,
     DateTimeOffset CreatedAt,
     DateTimeOffset LastMessageAt,
-    IReadOnlyList<ConversationMemberResponse> Members);
+    IReadOnlyList<ConversationMemberResponse> Members,
+
+    /// <summary>Quantas mensagens chegaram depois da marca de leitura de quem pediu.</summary>
+    /// <remarks>
+    /// <para>
+    /// Calculado por usuário, a partir do <c>LastReadMessageId</c> da linha dele. Não conta as
+    /// próprias mensagens nem avisos de sistema: ninguém precisa ser avisado do que escreveu,
+    /// e "Fulano entrou no grupo" não é algo a ler.
+    /// </para>
+    /// <para>
+    /// Vem do servidor, e não é calculado no cliente, porque o cliente só tem em memória as
+    /// mensagens que carregou — quem ficou uma semana fora veria "3 não lidas" quando são
+    /// trezentas.
+    /// </para>
+    /// </remarks>
+    int UnreadCount = 0);
 
 public sealed record ConversationMemberResponse(
     Guid UserId,
