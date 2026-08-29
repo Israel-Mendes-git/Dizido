@@ -1,0 +1,86 @@
+@* Silenciar a conversa. Vale para privado e para grupo. *@
+
+<div class="dz-silenciar">
+    <button type="button" class="dz-botao"
+            title="@(EstaSilenciada ? "Silenciada — clique para escolher" : "Silenciar esta conversa")"
+            aria-expanded="@_aberto"
+            @onclick="() => _aberto = !_aberto">
+        @(EstaSilenciada ? "🔕 silenciada" : "🔔 silenciar")
+    </button>
+
+    @if (_aberto)
+    {
+        <div class="dz-silenciar__menu" role="menu">
+            @if (EstaSilenciada)
+            {
+                <button type="button" role="menuitem" @onclick="() => AplicarAsync(null)">
+                    reativar avisos
+                </button>
+                <hr />
+            }
+
+            @* As opções que existem em todo app de mensagem. Nada de "15 minutos": quem
+               silencia quer parar de ser interrompido por um tempo que faça sentido no dia. *@
+            <button type="button" role="menuitem" @onclick="() => AplicarAsync(TimeSpan.FromHours(1))">
+                por 1 hora
+            </button>
+            <button type="button" role="menuitem" @onclick="() => AplicarAsync(TimeSpan.FromHours(8))">
+                por 8 horas
+            </button>
+            <button type="button" role="menuitem" @onclick="() => AplicarAsync(TimeSpan.FromDays(7))">
+                por 1 semana
+            </button>
+
+            @* "Para sempre" é um ano, não DateTimeOffset.MaxValue.
+               O valor máximo estoura a conversão para timestamp em alguns caminhos, e um ano
+               tem a vantagem de expirar: quem silenciou e esqueceu volta a ser avisado em vez
+               de descobrir daqui a três anos que perdeu tudo. *@
+            <button type="button" role="menuitem" @onclick="() => AplicarAsync(TimeSpan.FromDays(365))">
+                até eu reativar
+            </button>
+
+            @if (_erro is not null)
+            {
+                <p class="dz-silenciar__erro" role="alert">@_erro</p>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _aberto;
+    private string? _erro;
+
+    [Parameter, EditorRequired] public Guid ConversaId { get; set; }
+
+    /// <summary>Até quando está silenciada, do ponto de vista de quem está vendo.</summary>
+    [Parameter] public DateTimeOffset? SilenciadaAte { get; set; }
+
+    [Parameter, EditorRequired] public DizidoApiClient Api { get; set; } = null!;
+
+    /// <summary>Recarrega as conversas para a tela refletir o novo estado.</summary>
+    [Parameter] public EventCallback AoMudar { get; set; }
+
+    /// <summary>
+    /// Silenciada é ter uma data no futuro.
+    /// </summary>
+    /// <remarks>
+    /// A comparação é com o relógio de agora, e não com um campo booleano guardado: um
+    /// "silenciada por 1 hora" precisa deixar de valer sozinho, sem ninguém escrever no banco
+    /// na hora exata em que o prazo vence.
+    /// </remarks>
+    private bool EstaSilenciada => SilenciadaAte > DateTimeOffset.UtcNow;
+
+    private async Task AplicarAsync(TimeSpan? duracao)
+    {
+        _erro = await Api.MuteAsync(
+            ConversaId,
+            duracao is { } d ? DateTimeOffset.UtcNow.Add(d) : null);
+
+        if (_erro is null)
+        {
+            _aberto = false;
+            await AoMudar.InvokeAsync();
+        }
+    }
+}

@@ -104,7 +104,8 @@ internal static class SyncEndpoints
                         nomesDeTodos.GetValueOrDefault(m.UserId, "(desconhecido)"),
                         m.Role.ToString(),
                         m.LastReadMessageId,
-                        online.Contains(m.UserId)))]))],
+                        online.Contains(m.UserId),
+                        m.MutedUntil))]))],
                 [.. mensagens.Select(m => new MessageResponse(
                     m.Id, m.ConversationId, m.SenderId,
                     nomes.GetValueOrDefault(m.SenderId, "(desconhecido)"),

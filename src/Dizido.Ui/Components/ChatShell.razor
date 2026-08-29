@@ -89,6 +89,11 @@ else
                                AoApagar="ApagarMensagem"
                                AoResponder="ComecarResposta">
                     <Acoes>
+                        <MuteButton ConversaId="ativa"
+                                    SilenciadaAte="@MinhaLinhaNaAtiva?.MutedUntil"
+                                    Api="Api"
+                                    AoMudar="RecarregarConversas" />
+
                         @if (ConversaAtivaEhGrupo)
                         {
                             <button type="button" class="dz-botao" @onclick="AbrirPainelDoGrupo">
@@ -338,6 +343,14 @@ else
     /// Vale só para decidir o que a tela oferece. A permissão de verdade é refeita no servidor,
     /// pelo domínio — esconder um botão não impede ninguém de chamar o endpoint.
     /// </remarks>
+    /// <summary>A minha linha de participação na conversa aberta.</summary>
+    /// <remarks>
+    /// A resposta traz um registro por membro; o que vale para mim — o silêncio, a marca de
+    /// leitura — está na linha com o meu id.
+    /// </remarks>
+    private ConversationMemberResponse? MinhaLinhaNaAtiva =>
+        ConversaAtivaObj?.Members.FirstOrDefault(m => m.UserId == Sessao.UserId);
+
     private bool EuModeroAConversaAtiva =>
         ConversaAtivaObj?.Members
             .FirstOrDefault(m => m.UserId == Sessao.UserId)?.Role is "Admin" or "Owner";

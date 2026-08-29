@@ -200,6 +200,7 @@ internal static class ConversationEndpoints
                     names.GetValueOrDefault(m.UserId, "(desconhecido)"),
                     m.Role.ToString(),
                     m.LastReadMessageId,
-                    online.Contains(m.UserId)))]))];
+                    online.Contains(m.UserId),
+                    m.MutedUntil))]))];
     }
 }

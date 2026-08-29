@@ -1008,3 +1008,49 @@ button { font: inherit; cursor: pointer; }
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
+
+/* ---------- silenciar ---------- */
+
+.dz-silenciar { position: relative; }
+
+.dz-silenciar__menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    min-width: 180px;
+    padding: 4px;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    /* A sombra separa o menu do que está atrás. Sem ela, sobre a lista de mensagens, o
+       menu parece parte do fundo. */
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+
+.dz-silenciar__menu button {
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
+.dz-silenciar__menu button:hover { background: var(--dz-borda); }
+
+.dz-silenciar__menu hr {
+    border: 0;
+    border-top: 1px solid var(--dz-borda);
+    margin: 4px 0;
+    width: 100%;
+}
+
+.dz-silenciar__erro {
+    margin: 4px 10px;
+    color: var(--dz-erro);
+    font-size: 12px;
+}
