@@ -12,6 +12,28 @@
         <p class="dz-login__erro" role="alert">@_erro</p>
     }
 
+    <section class="dz-grupo__bloco dz-grupo__identidade">
+        <Avatar Nome="@(Conversa.Title ?? "Grupo")" ImagemUrl="@Conversa.AvatarUrl" />
+
+        @if (SouAdmin)
+        {
+            <div class="dz-grupo__avatar-acoes">
+                @* O mesmo InputFile escondido do compositor. O upload passa pelos três passos
+                   normais de anexo — não há um caminho especial para avatar. *@
+                <label class="dz-botao-texto">
+                    @(_enviandoAvatar ? "enviando…" : "trocar imagem")
+                    <InputFile OnChange="TrocarAvatar" accept="image/*" disabled="@_enviandoAvatar" />
+                </label>
+
+                @if (Conversa.AvatarUrl is not null)
+                {
+                    <button type="button" class="dz-botao-texto"
+                            disabled="@_enviandoAvatar" @onclick="RemoverAvatar">remover</button>
+                }
+            </div>
+        }
+    </section>
+
     <section class="dz-grupo__bloco">
         <label>
             Nome
@@ -103,6 +125,72 @@
     private bool _ocupado;
     private string? _erro;
     private Guid _ultimaConversa;
+    private bool _enviandoAvatar;
+
+    /// <summary>Teto do avatar. Bem abaixo do limite de imagem do servidor (10 MB).</summary>
+    /// <remarks>
+    /// Um avatar aparece com 38 px de lado. Aceitar 10 MB para isso seria gastar a banda de
+    /// quem envia e o armazenamento de quem hospeda por uma imagem que ninguém vai ver inteira.
+    /// </remarks>
+    private const long LimiteDoAvatar = 5L * 1024 * 1024;
+
+    /// <summary>
+    /// Sobe a imagem e a define como avatar do grupo.
+    /// </summary>
+    /// <remarks>
+    /// Passa pelos mesmos três passos de qualquer anexo — pedir, subir, confirmar — e só então
+    /// aponta o grupo para ele. Não há caminho especial para avatar: é o mesmo código, a mesma
+    /// conferência de bytes, a mesma miniatura. O que a miniatura gera é justamente o que a
+    /// tela vai usar.
+    /// </remarks>
+    private async Task TrocarAvatar(InputFileChangeEventArgs e)
+    {
+        var arquivo = e.File;
+
+        if (arquivo.Size > LimiteDoAvatar)
+        {
+            _erro = $"A imagem tem {arquivo.Size / (1024 * 1024)} MB e o limite do avatar é 5 MB.";
+            return;
+        }
+
+        _enviandoAvatar = true;
+        _erro = null;
+
+        try
+        {
+            await using var conteudo = arquivo.OpenReadStream(LimiteDoAvatar);
+
+            var (anexo, erroDoUpload) = await Api.UploadAsync(
+                Conversa.Id, arquivo.Name, arquivo.ContentType ?? string.Empty, conteudo, arquivo.Size);
+
+            if (anexo is null)
+            {
+                _erro = erroDoUpload ?? "Não foi possível enviar a imagem.";
+                return;
+            }
+
+            _erro = await Api.SetGroupAvatarAsync(Conversa.Id, anexo.Id);
+
+            if (_erro is null)
+            {
+                await AoMudar.InvokeAsync();
+            }
+        }
+        finally
+        {
+            _enviandoAvatar = false;
+        }
+    }
+
+    private async Task RemoverAvatar()
+    {
+        _erro = await Api.SetGroupAvatarAsync(Conversa.Id, null);
+
+        if (_erro is null)
+        {
+            await AoMudar.InvokeAsync();
+        }
+    }
 
     [Parameter, EditorRequired] public ConversationResponse Conversa { get; set; } = null!;
 

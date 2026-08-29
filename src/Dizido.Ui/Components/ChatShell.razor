@@ -77,6 +77,7 @@ else
                                MeuId="@(Sessao.UserId ?? Guid.Empty)"
                                Titulo="@TituloDaAtiva"
                                Subtitulo="@SubtituloDaAtiva"
+                               AvatarUrl="@ConversaAtivaObj?.AvatarUrl"
                                Carregando="Store.CarregandoHistorico"
                                Digitando="NomesDigitando(ativa)"
                                TemMaisAntigas="Store.TemMaisAntigas(ativa)"

@@ -1,4 +1,5 @@
 using Dizido.Api.Auth;
+using Dizido.Api.Conversations;
 using Dizido.Api.Realtime;
 using Dizido.Contracts.Conversations;
 using Dizido.Domain.Entities;
@@ -17,7 +18,7 @@ internal static class ConversationEndpoints
         group.MapGet("/", async (
             ICurrentUser currentUser,
             DizidoDbContext db,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { } me)
@@ -40,14 +41,14 @@ internal static class ConversationEndpoints
                 .OrderByDescending(c => c.LastMessageAt)
                 .ToListAsync(ct);
 
-            return Results.Ok(await ToResponsesAsync(conversations, db, presence, ct));
+            return Results.Ok(await presenter.ApresentarAsync(conversations, ct));
         });
 
         group.MapGet("/{id:guid}", async (
             Guid id,
             ICurrentUser currentUser,
             DizidoDbContext db,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { } me)
@@ -73,7 +74,7 @@ internal static class ConversationEndpoints
                 return Results.NotFound();
             }
 
-            var responses = await ToResponsesAsync([conversation], db, presence, ct);
+            var responses = await presenter.ApresentarAsync([conversation], ct);
             return Results.Ok(responses[0]);
         });
 
@@ -81,7 +82,7 @@ internal static class ConversationEndpoints
             CreateDirectRequest request,
             ICurrentUser currentUser,
             DizidoDbContext db,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             TimeProvider clock,
             IConversationNotifier notifier,
             CancellationToken ct) =>
@@ -107,7 +108,7 @@ internal static class ConversationEndpoints
 
             if (existing is not null)
             {
-                var found = await ToResponsesAsync([existing], db, presence, ct);
+                var found = await presenter.ApresentarAsync([existing], ct);
                 return Results.Ok(found[0]);
             }
 
@@ -116,7 +117,7 @@ internal static class ConversationEndpoints
             db.Conversations.Add(conversation);
             await db.SaveChangesAsync(ct);
 
-            var created = await ToResponsesAsync([conversation], db, presence, ct);
+            var created = await presenter.ApresentarAsync([conversation], ct);
 
             // Inscreve as conexões já abertas dos dois no grupo desta conversa nova.
             // Sem isto, quem estivesse com o app aberto só a veria ao recarregar a página.
@@ -129,7 +130,7 @@ internal static class ConversationEndpoints
             CreateGroupRequest request,
             ICurrentUser currentUser,
             DizidoDbContext db,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             TimeProvider clock,
             IConversationNotifier notifier,
             CancellationToken ct) =>
@@ -144,7 +145,7 @@ internal static class ConversationEndpoints
             db.Conversations.Add(conversation);
             await db.SaveChangesAsync(ct);
 
-            var created = await ToResponsesAsync([conversation], db, presence, ct);
+            var created = await presenter.ApresentarAsync([conversation], ct);
 
             await notifier.ConversationCreatedAsync(created[0], [me]);
 
@@ -152,55 +153,5 @@ internal static class ConversationEndpoints
         });
 
         return group;
-    }
-
-    /// <summary>
-    /// Monta os DTOs resolvendo os nomes de exibição em UMA consulta para todas as conversas.
-    /// </summary>
-    /// <remarks>
-    /// A alternativa ingênua — buscar o nome de cada membro dentro do laço — dispara uma
-    /// consulta por membro. É o problema N+1: 20 conversas com 5 membros viram 101 idas ao
-    /// banco em vez de 2. Aqui coletamos todos os ids primeiro e buscamos de uma vez.
-    /// </remarks>
-    private static async Task<List<ConversationResponse>> ToResponsesAsync(
-        IReadOnlyList<Conversation> conversations,
-        DizidoDbContext db,
-        IPresenceTracker presence,
-        CancellationToken ct)
-    {
-        var userIds = conversations
-            .SelectMany(c => c.Members.Select(m => m.UserId))
-            .Distinct()
-            .ToList();
-
-        var names = await db.Profiles
-            .AsNoTracking()
-            .Where(u => userIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
-
-        // O estado de presença precisa vir junto da lista de conversas.
-        //
-        // O evento PresenceChanged do SignalR só dispara quando alguém conecta ou desconecta.
-        // Quem já estava online antes de você abrir o app nunca gerou evento nenhum para você
-        // — então, sem isto, todo mundo aparece offline até se mexer. É o estado inicial que
-        // faltava; o evento cuida das mudanças a partir daí.
-        var online = (await presence.FilterOnlineAsync(userIds)).ToHashSet();
-
-        return [.. conversations.Select(c => new ConversationResponse(
-            c.Id,
-            c.Type.ToString(),
-            c.Title,
-            c.AvatarUrl,
-            c.CreatedAt,
-            c.LastMessageAt,
-            [.. c.Members
-                .Where(m => m.IsActive)
-                .Select(m => new ConversationMemberResponse(
-                    m.UserId,
-                    names.GetValueOrDefault(m.UserId, "(desconhecido)"),
-                    m.Role.ToString(),
-                    m.LastReadMessageId,
-                    online.Contains(m.UserId),
-                    m.MutedUntil))]))];
     }
 }

@@ -1,4 +1,5 @@
 using Dizido.Api.Auth;
+using Dizido.Api.Conversations;
 using Dizido.Api.Realtime;
 using Dizido.Contracts.Conversations;
 using Dizido.Contracts.Messages;
@@ -30,7 +31,7 @@ internal static class SyncEndpoints
             SyncRequest request,
             ICurrentUser currentUser,
             DizidoDbContext db,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { } me)
@@ -77,42 +78,29 @@ internal static class SyncEndpoints
                 mensagens.AddRange(novas);
             }
 
-            var autores = mensagens.Select(m => m.SenderId).Distinct().ToList();
+            // Remetentes E alvos de aviso de sistema. O alvo de "Fulano removeu Beltrano" não
+            // é remetente de nada, e sem ele o nome sairia como "(desconhecido)" — que é
+            // exatamente o tipo de detalhe que só aparece depois, na tela de alguém.
+            var pessoas = mensagens
+                .Select(m => m.SenderId)
+                .Concat(mensagens.Where(m => m.SystemTargetId is not null).Select(m => m.SystemTargetId!.Value))
+                .Distinct()
+                .ToList();
+
             var nomes = await db.Profiles
                 .AsNoTracking()
-                .Where(u => autores.Contains(u.Id))
-                .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
-
-            var online = (await presence.FilterOnlineAsync(
-                [.. conversas.SelectMany(c => c.Members.Select(m => m.UserId)).Distinct()])).ToHashSet();
-
-            var nomesDeTodos = await db.Profiles
-                .AsNoTracking()
-                .Where(u => conversas.SelectMany(c => c.Members.Select(m => m.UserId)).Contains(u.Id))
+                .Where(u => pessoas.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
 
             return Results.Ok(new SyncResponse(
-                [.. conversas.Select(c => new ConversationResponse(
-                    c.Id,
-                    c.Type.ToString(),
-                    c.Title,
-                    c.AvatarUrl,
-                    c.CreatedAt,
-                    c.LastMessageAt,
-                    [.. c.Members.Where(m => m.IsActive).Select(m => new ConversationMemberResponse(
-                        m.UserId,
-                        nomesDeTodos.GetValueOrDefault(m.UserId, "(desconhecido)"),
-                        m.Role.ToString(),
-                        m.LastReadMessageId,
-                        online.Contains(m.UserId),
-                        m.MutedUntil))]))],
+                await presenter.ApresentarAsync(conversas, ct),
                 [.. mensagens.Select(m => new MessageResponse(
                     m.Id, m.ConversationId, m.SenderId,
                     nomes.GetValueOrDefault(m.SenderId, "(desconhecido)"),
                     m.Body, m.ClientMessageId, m.ReplyToMessageId,
                     m.SentAt, m.EditedAt, m.IsDeleted,
                     m.Kind.ToString(), m.SystemEvent?.ToString(), m.SystemTargetId,
-                    m.SystemTargetId is { } alvo ? nomesDeTodos.GetValueOrDefault(alvo) : null))],
+                    m.SystemTargetId is { } alvo ? nomes.GetValueOrDefault(alvo) : null))],
                 truncadas));
         });
 

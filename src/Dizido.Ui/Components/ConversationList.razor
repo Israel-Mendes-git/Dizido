@@ -33,7 +33,7 @@
                     @key="conversa.Id"
                     class="dz-lista__item @(conversa.Id == Ativa ? "dz-lista__item--ativa" : null)"
                     @onclick="() => AoSelecionar.InvokeAsync(conversa.Id)">
-                <Avatar Nome="@titulo" Online="@(outro is not null && EstaOnline(outro.UserId))" />
+                <Avatar Nome="@titulo" ImagemUrl="@conversa.AvatarUrl" Online="@(outro is not null && EstaOnline(outro.UserId))" />
                 <div class="dz-lista__texto">
                     <span class="dz-lista__titulo">@titulo</span>
                     <span class="dz-lista__sub">@Legenda(conversa)</span>

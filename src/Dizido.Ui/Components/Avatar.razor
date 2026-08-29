@@ -3,6 +3,13 @@
 <div class="dz-avatar @(Online ? "dz-avatar--online" : null)"
      style="background: @Cor"
      title="@Nome">
+    @if (!string.IsNullOrEmpty(ImagemUrl))
+    {
+        @* As iniciais continuam no fundo, sob a imagem: se a URL assinada expirar, o que
+           aparece é a inicial colorida, não um quadrado quebrado. *@
+        <img src="@ImagemUrl" alt="" loading="lazy" />
+    }
+
     <span>@Iniciais</span>
 </div>
 
@@ -10,6 +17,9 @@
     [Parameter, EditorRequired] public string Nome { get; set; } = string.Empty;
 
     [Parameter] public bool Online { get; set; }
+
+    /// <summary>Imagem a exibir no lugar das iniciais, quando houver.</summary>
+    [Parameter] public string? ImagemUrl { get; set; }
 
     private string Iniciais
     {

@@ -1054,3 +1054,30 @@ button { font: inherit; cursor: pointer; }
     color: var(--dz-erro);
     font-size: 12px;
 }
+
+/* A imagem cobre as iniciais, que ficam embaixo como reserva: se a URL assinada expirar,
+   o que aparece é a inicial colorida em vez de um quadrado quebrado. */
+.dz-avatar img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+.dz-grupo__identidade { flex-direction: row; align-items: center; gap: 14px; }
+
+.dz-grupo__identidade .dz-avatar { width: 64px; height: 64px; flex: 0 0 64px; font-size: 20px; }
+
+.dz-grupo__avatar-acoes { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+
+/* Mesmo padrão do compositor: o seletor nativo fica escondido e o label vira o botão. */
+.dz-grupo__avatar-acoes label { cursor: pointer; }
+
+.dz-grupo__avatar-acoes input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}

@@ -40,7 +40,12 @@ public sealed class Conversation
     /// <summary>Obrigatório em grupos, sempre nulo em conversas diretas.</summary>
     public string? Title { get; private set; }
 
-    public string? AvatarUrl { get; private set; }
+    /// <summary>A imagem do grupo, como referência ao anexo.</summary>
+    /// <remarks>
+    /// Referência, e não URL: a URL do storage é assinada e expira em minutos. Gravá-la
+    /// produziria um avatar que funciona hoje e quebra amanhã, sem nada mudar no banco.
+    /// </remarks>
+    public Guid? AvatarAttachmentId { get; private set; }
 
     public Guid CreatedById { get; private set; }
 
@@ -220,12 +225,52 @@ public sealed class Conversation
         return Message.CreateSystem(Id, actorId, SystemEventKind.TitleChanged, now, body: Title);
     }
 
-    public void SetAvatar(Guid actorId, string? avatarUrl)
+    /// <summary>
+    /// Troca (ou remove, com <c>null</c>) a imagem do grupo.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Guarda a <b>referência ao anexo</b>, não uma URL. Uma URL de imagem no storage é
+    /// assinada e expira em minutos — gravá-la no banco produziria um avatar que funciona no
+    /// dia em que foi definido e quebra no seguinte. A URL é assinada na hora de responder.
+    /// </para>
+    /// <para>
+    /// Devolve o aviso de sistema para o fluxo: trocar a cara do grupo é assunto de todo mundo
+    /// que está nele, ao contrário de silenciar.
+    /// </para>
+    /// </remarks>
+    public Message SetAvatar(Guid actorId, Attachment? imagem, DateTimeOffset now)
     {
         DomainException.Require(Type == ConversationType.Group, "Conversa direta não tem avatar próprio.");
+
         RequireAtLeast(actorId, MemberRole.Admin, "trocar a imagem do grupo");
 
-        AvatarUrl = avatarUrl;
+        if (imagem is not null)
+        {
+            // As mesmas três perguntas de PostMessage, pela mesma razão: sem a primeira,
+            // bastaria descobrir o id de um arquivo de outra conversa para exibi-lo aqui.
+            DomainException.Require(
+                imagem.ConversationId == Id,
+                "A imagem pertence a outra conversa.");
+
+            DomainException.Require(
+                imagem.UploadedById == actorId,
+                "Só é possível usar imagens que você mesmo enviou.");
+
+            DomainException.Require(
+                imagem.IsReady,
+                "O envio desta imagem ainda não terminou.");
+
+            // Um PDF de avatar não daria erro em lugar nenhum — só apareceria como um quadrado
+            // quebrado para todo mundo, para sempre.
+            DomainException.Require(
+                imagem.Kind == AttachmentKind.Image,
+                "O avatar do grupo precisa ser uma imagem.");
+        }
+
+        AvatarAttachmentId = imagem?.Id;
+
+        return Message.CreateSystem(Id, actorId, SystemEventKind.AvatarChanged, now);
     }
 
     /// <summary>Silencia (ou desativa o silêncio) para um membro. Só afeta quem chamou.</summary>

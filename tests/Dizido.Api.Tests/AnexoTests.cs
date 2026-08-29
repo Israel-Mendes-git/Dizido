@@ -15,10 +15,6 @@ namespace Dizido.Api.Tests;
 [Collection(ColecaoDaApi.Nome)]
 public sealed class AnexoTests(DizidoApiFactory api) : TesteDeApi(api)
 {
-    /// <summary>Um PNG de 1x1 pixel, válido de verdade — o Skia consegue abrir e reduzir.</summary>
-    private static readonly byte[] PngMinimo = Convert.FromBase64String(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
-
     [Fact]
     public async Task ImagemSobeDiretoParaOStorageEViraMensagem()
     {

@@ -20,7 +20,14 @@ internal sealed class ConversationConfiguration : IEntityTypeConfiguration<Conve
             .IsRequired();
 
         builder.Property(c => c.Title).HasMaxLength(Conversation.MaxTitleLength);
-        builder.Property(c => c.AvatarUrl).HasMaxLength(500);
+        // Sem FK para attachments de propósito.
+        //
+        // Uma FK com Restrict impediria apagar o anexo enquanto ele fosse avatar; com SetNull,
+        // exigiria que o EF conhecesse a relação nos dois sentidos. E há um ciclo: o anexo
+        // aponta para a conversa, e a conversa apontaria de volta para o anexo. A faxina
+        // resolve isso melhor do que o banco — ela só apaga anexos Pending, e um avatar está
+        // sempre Ready.
+        builder.Property(c => c.AvatarAttachmentId);
         builder.Property(c => c.CreatedById).IsRequired();
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.LastMessageAt).IsRequired();

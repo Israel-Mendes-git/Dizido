@@ -147,6 +147,13 @@ public sealed class DizidoApiClient(HttpClient http, DizidoSession session)
         ExecutarAsync(() => http.PatchAsJsonAsync(
             $"api/conversations/{conversationId}/mute", new MuteRequest(until), ct), ct);
 
+    /// <summary>Troca a imagem do grupo. Nulo remove.</summary>
+    public Task<string?> SetGroupAvatarAsync(
+        Guid conversationId, Guid? attachmentId, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.PutAsJsonAsync(
+            $"api/conversations/{conversationId}/avatar",
+            new SetGroupAvatarRequest(attachmentId), ct), ct);
+
     private static async Task<string?> ExecutarAsync(
         Func<Task<HttpResponseMessage>> chamada, CancellationToken ct)
     {

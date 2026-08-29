@@ -37,6 +37,12 @@
                 "RoleChanged" => Mensagem.Body == "Admin"
                     ? $"{autor} tornou {alvo} administrador"
                     : $"{autor} removeu a administração de {alvo}",
+                "AvatarChanged" => $"{autor} mudou a imagem do grupo",
+
+                // Fallback para um evento que o servidor conhece e esta versão do cliente
+                // ainda não. Acontece de verdade: num app instalado, o servidor atualiza e o
+                // navegador de alguém continua com o pacote antigo em cache. Uma frase vaga é
+                // melhor do que um buraco na conversa.
                 _ => "algo mudou no grupo",
             };
         }

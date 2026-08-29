@@ -72,6 +72,10 @@ public abstract class TesteDeApi(DizidoApiFactory api)
         Assert.Contains(trechoEsperado, problema.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Um PNG de 1x1 pixel, válido de verdade — o Skia consegue abrir e reduzir.</summary>
+    protected static readonly byte[] PngMinimo = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+
     /// <summary>Só os campos do ProblemDetails que os testes consultam.</summary>
     protected sealed record ProblemaHttp(string? Title, string? Detail, int? Status);
 }

@@ -32,4 +32,7 @@ public enum SystemEventKind
     TitleChanged = 4,
     OwnershipTransferred = 5,
     RoleChanged = 6,
+
+    /// <summary>A imagem do grupo mudou (ou foi removida).</summary>
+    AvatarChanged = 7,
 }

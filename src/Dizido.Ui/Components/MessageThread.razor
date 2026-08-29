@@ -3,7 +3,7 @@
 
 <div class="dz-thread">
     <header class="dz-thread__topo">
-        <Avatar Nome="@Titulo" />
+        <Avatar Nome="@Titulo" ImagemUrl="@AvatarUrl" />
         <div class="dz-thread__identidade">
             <div class="dz-thread__titulo">@Titulo</div>
             <div class="dz-thread__sub">@Subtitulo</div>
@@ -92,6 +92,9 @@
     [Parameter] public string Titulo { get; set; } = string.Empty;
 
     [Parameter] public string Subtitulo { get; set; } = string.Empty;
+
+    /// <summary>Imagem do grupo, quando definida.</summary>
+    [Parameter] public string? AvatarUrl { get; set; }
 
     /// <summary>Botões extras no cabeçalho, fornecidos pelo componente pai.</summary>
     [Parameter] public RenderFragment? Acoes { get; set; }

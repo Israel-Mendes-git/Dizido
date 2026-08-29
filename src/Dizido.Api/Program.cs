@@ -1,6 +1,7 @@
 using Dizido.Api;
 using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
+using Dizido.Api.Conversations;
 using Dizido.Api.Endpoints;
 using Dizido.Api.Faxina;
 using Dizido.Api.Health;
@@ -38,6 +39,7 @@ builder.Services.AddHttpContextAccessor();
 // Assina as URLs temporárias dos anexos. Scoped por hábito, não por necessidade — ele não
 // guarda estado; o que guarda estado é o IObjectStorage, que é singleton na Infrastructure.
 builder.Services.AddScoped<AttachmentPresenter>();
+builder.Services.AddScoped<ConversationPresenter>();
 
 // ---------------------------------------------------------------------------
 // Autenticação

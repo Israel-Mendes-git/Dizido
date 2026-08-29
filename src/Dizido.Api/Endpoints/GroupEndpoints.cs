@@ -1,4 +1,5 @@
 using Dizido.Api.Auth;
+using Dizido.Api.Conversations;
 using Dizido.Api.Realtime;
 using Dizido.Contracts.Conversations;
 using Dizido.Contracts.Messages;
@@ -33,7 +34,7 @@ internal static class GroupEndpoints
             DizidoDbContext db,
             TimeProvider clock,
             IHubContext<ChatHub, IChatClient> hub,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             var (conversa, erro) = await CarregarAsync(id, currentUser, db, ct);
@@ -45,7 +46,7 @@ internal static class GroupEndpoints
 
             var aviso = conversa!.Rename(currentUser.UserId!.Value, request.Title, clock.GetUtcNow());
 
-            return await GravarENotificarAsync(conversa, aviso, db, hub, presence, ct);
+            return await GravarENotificarAsync(conversa, aviso, db, hub, presenter, ct);
         });
 
         group.MapPost("/members/{userId:guid}", async (
@@ -56,7 +57,7 @@ internal static class GroupEndpoints
             TimeProvider clock,
             IHubContext<ChatHub, IChatClient> hub,
             IConversationNotifier notifier,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             var (conversa, erro) = await CarregarAsync(id, currentUser, db, ct);
@@ -85,7 +86,7 @@ internal static class GroupEndpoints
             // o bug aparece "às vezes", que é o tipo mais caro de investigar.
             //
             // Inscrever primeiro, notificar depois.
-            var resposta = await MontarRespostaAsync(conversa, db, presence, ct);
+            var resposta = await presenter.ApresentarUmaAsync(conversa, ct);
             await notifier.MemberAddedAsync(resposta, userId);
 
             var nomes = await NomesAsync(db, [aviso.SenderId, aviso.SystemTargetId], ct);
@@ -102,7 +103,7 @@ internal static class GroupEndpoints
             DizidoDbContext db,
             TimeProvider clock,
             IHubContext<ChatHub, IChatClient> hub,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             var (conversa, erro) = await CarregarAsync(id, currentUser, db, ct);
@@ -114,7 +115,7 @@ internal static class GroupEndpoints
 
             var aviso = conversa!.RemoveMember(currentUser.UserId!.Value, userId, clock.GetUtcNow());
 
-            return await GravarENotificarAsync(conversa, aviso, db, hub, presence, ct);
+            return await GravarENotificarAsync(conversa, aviso, db, hub, presenter, ct);
         });
 
         group.MapPatch("/members/{userId:guid}/role", async (
@@ -125,7 +126,7 @@ internal static class GroupEndpoints
             DizidoDbContext db,
             TimeProvider clock,
             IHubContext<ChatHub, IChatClient> hub,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             var (conversa, erro) = await CarregarAsync(id, currentUser, db, ct);
@@ -145,7 +146,7 @@ internal static class GroupEndpoints
 
             var aviso = conversa!.ChangeRole(currentUser.UserId!.Value, userId, cargo, clock.GetUtcNow());
 
-            return await GravarENotificarAsync(conversa, aviso, db, hub, presence, ct);
+            return await GravarENotificarAsync(conversa, aviso, db, hub, presenter, ct);
         });
 
         group.MapPost("/owner/{userId:guid}", async (
@@ -155,7 +156,7 @@ internal static class GroupEndpoints
             DizidoDbContext db,
             TimeProvider clock,
             IHubContext<ChatHub, IChatClient> hub,
-            IPresenceTracker presence,
+            ConversationPresenter presenter,
             CancellationToken ct) =>
         {
             var (conversa, erro) = await CarregarAsync(id, currentUser, db, ct);
@@ -167,7 +168,43 @@ internal static class GroupEndpoints
 
             var aviso = conversa!.TransferOwnership(currentUser.UserId!.Value, userId, clock.GetUtcNow());
 
-            return await GravarENotificarAsync(conversa, aviso, db, hub, presence, ct);
+            return await GravarENotificarAsync(conversa, aviso, db, hub, presenter, ct);
+        });
+
+        // Trocar (ou remover) a imagem do grupo. O anexo tem que ter sido enviado antes, para
+        // esta mesma conversa, pelo mesmo usuário — as três perguntas que o domínio faz.
+        group.MapPut("/avatar", async (
+            Guid id,
+            SetGroupAvatarRequest request,
+            ICurrentUser currentUser,
+            DizidoDbContext db,
+            TimeProvider clock,
+            IHubContext<ChatHub, IChatClient> hub,
+            ConversationPresenter presenter,
+            CancellationToken ct) =>
+        {
+            var (conversa, erro) = await CarregarAsync(id, currentUser, db, ct);
+
+            if (erro is not null)
+            {
+                return erro;
+            }
+
+            Attachment? imagem = null;
+
+            if (request.AttachmentId is { } anexoId)
+            {
+                imagem = await db.Attachments.FirstOrDefaultAsync(a => a.Id == anexoId, ct);
+
+                if (imagem is null)
+                {
+                    return Results.NotFound(new { message = "Anexo não encontrado." });
+                }
+            }
+
+            var aviso = conversa!.SetAvatar(currentUser.UserId!.Value, imagem, clock.GetUtcNow());
+
+            return await GravarENotificarAsync(conversa, aviso, db, hub, presenter, ct);
         });
 
         group.MapPatch("/mute", async (
@@ -226,7 +263,7 @@ internal static class GroupEndpoints
         Message aviso,
         DizidoDbContext db,
         IHubContext<ChatHub, IChatClient> hub,
-        IPresenceTracker presence,
+        ConversationPresenter presenter,
         CancellationToken ct)
     {
         db.Messages.Add(aviso);
@@ -244,7 +281,7 @@ internal static class GroupEndpoints
         // Sem o segundo evento, o outro participante vê "Ana mudou o nome do grupo para X"
         // enquanto a barra lateral continua exibindo o nome antigo, até ele recarregar.
         await clientes.MessageReceived(ParaDto(aviso, nomes));
-        await clientes.ConversationAdded(await MontarRespostaAsync(conversa, db, presence, ct));
+        await clientes.ConversationAdded(await presenter.ApresentarUmaAsync(conversa, ct));
 
         return Results.NoContent();
     }
@@ -270,21 +307,4 @@ internal static class GroupEndpoints
             m.SystemTargetId,
             m.SystemTargetId is { } alvo ? nomes.GetValueOrDefault(alvo) : null);
 
-    private static async Task<ConversationResponse> MontarRespostaAsync(
-        Conversation c, DizidoDbContext db, IPresenceTracker presence, CancellationToken ct)
-    {
-        var ids = c.Members.Select(m => m.UserId).ToList();
-        var nomes = await NomesAsync(db, ids.Cast<Guid?>(), ct);
-        var online = (await presence.FilterOnlineAsync(ids)).ToHashSet();
-
-        return new ConversationResponse(
-            c.Id, c.Type.ToString(), c.Title, c.AvatarUrl, c.CreatedAt, c.LastMessageAt,
-            [.. c.Members.Where(m => m.IsActive).Select(m => new ConversationMemberResponse(
-                m.UserId,
-                nomes.GetValueOrDefault(m.UserId, "(desconhecido)"),
-                m.Role.ToString(),
-                m.LastReadMessageId,
-                online.Contains(m.UserId),
-                m.MutedUntil))]);
-    }
 }
