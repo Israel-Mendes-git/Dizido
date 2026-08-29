@@ -290,11 +290,26 @@ public sealed class Conversation
     /// gravar mensagem em conversa da qual a pessoa não participa.
     /// </summary>
     public Message PostMessage(Guid senderId, string body, Guid clientMessageId, DateTimeOffset now,
-        Guid? replyToMessageId = null, Attachment? attachment = null)
+        Guid? replyToMessageId = null, Attachment? attachment = null,
+        IReadOnlyList<Guid>? mentions = null)
     {
         DomainException.Require(
             IsActiveMember(senderId),
             "Só membros ativos da conversa podem enviar mensagens.");
+
+        if (mentions is { Count: > 0 })
+        {
+            // Só dá para citar quem está na conversa. Sem esta regra, um cliente adulterado
+            // mandaria o id de qualquer pessoa do sistema e a notificaria — transformando a
+            // menção num jeito de incomodar quem nem participa do grupo.
+            DomainException.Require(
+                mentions.All(IsActiveMember),
+                "Só é possível citar participantes da conversa.");
+
+            DomainException.Require(
+                mentions.Distinct().Count() == mentions.Count,
+                "A mesma pessoa foi citada mais de uma vez.");
+        }
 
         if (attachment is not null)
         {
@@ -316,7 +331,7 @@ public sealed class Conversation
         }
 
         var message = Message.Create(
-            Id, senderId, body, clientMessageId, now, replyToMessageId, attachment?.Id);
+            Id, senderId, body, clientMessageId, now, replyToMessageId, attachment?.Id, mentions);
 
         if (now > LastMessageAt)
         {

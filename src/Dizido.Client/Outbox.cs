@@ -25,6 +25,10 @@ public sealed record ItemDaFila(
     DateTimeOffset CriadaEm,
     Guid? AttachmentId = null,
     Guid? ReplyToMessageId = null,
+
+    /// <summary>Quem foi citado. Vai na fila para a menção sobreviver a um envio offline.</summary>
+    IReadOnlyList<Guid>? Citados = null,
+
     int Tentativas = 0);
 
 /// <summary>Onde a fila de saída é guardada. Abstraído para o Domain do cliente não conhecer o navegador.</summary>

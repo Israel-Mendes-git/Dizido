@@ -235,6 +235,7 @@ public sealed class ChatStore(
         string texto,
         AttachmentResponse? anexo = null,
         MessageReplyPreview? respondendoA = null,
+        IReadOnlyList<Guid>? citados = null,
         CancellationToken ct = default)
     {
         var clientMessageId = Guid.NewGuid();
@@ -245,7 +246,9 @@ public sealed class ChatStore(
             EstadoEnvio.Enviando));
 
         await outbox.EnfileirarAsync(
-            new ItemDaFila(conversationId, clientMessageId, texto, agora, anexo?.Id, respondendoA?.MessageId));
+            new ItemDaFila(
+                conversationId, clientMessageId, texto, agora,
+                anexo?.Id, respondendoA?.MessageId, Citados: citados));
 
         Changed?.Invoke();
         IniciarDrenagem();
@@ -278,7 +281,7 @@ public sealed class ChatStore(
             return erro ?? "Não foi possível enviar o arquivo.";
         }
 
-        await EnviarAsync(conversationId, texto, anexo, respondendoA, ct);
+        await EnviarAsync(conversationId, texto, anexo, respondendoA, ct: ct);
 
         return null;
     }
@@ -419,7 +422,8 @@ public sealed class ChatStore(
                 var (mensagem, _) = await api.SendMessageAsync(
                     item.ConversationId,
                         new SendMessageRequest(
-                        item.ClientMessageId, item.Body, item.ReplyToMessageId, item.AttachmentId),
+                        item.ClientMessageId, item.Body, item.ReplyToMessageId,
+                        item.AttachmentId, item.Citados),
                     ct);
 
                 if (mensagem is not null)

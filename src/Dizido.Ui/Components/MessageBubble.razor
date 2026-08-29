@@ -66,7 +66,12 @@
             @* Com anexo, o corpo é legenda e costuma vir vazio — não vale ocupar espaço. *@
             @if (!string.IsNullOrEmpty(Mensagem.Dados.Body))
             {
-                <div class="dz-bubble__texto">@Mensagem.Dados.Body</div>
+                <div class="dz-bubble__texto">
+                    <MessageText Texto="@Mensagem.Dados.Body"
+                                 Mencionados="@Mensagem.Dados.MentionedUserIds"
+                                 Membros="Membros"
+                                 MeuId="MeuId" />
+                </div>
             }
         }
 
@@ -144,6 +149,12 @@
     /// pergunta ao domínio — esconder um botão não é controle de acesso.
     /// </remarks>
     [Parameter] public bool PodeModerar { get; set; }
+
+    /// <summary>Participantes da conversa, para reconhecer os nomes citados no texto.</summary>
+    [Parameter] public IReadOnlyList<ConversationMemberResponse> Membros { get; set; } = [];
+
+    /// <summary>Quem está lendo — uma menção a você fica em destaque mais forte.</summary>
+    [Parameter] public Guid MeuId { get; set; }
 
     [Parameter] public EventCallback<MensagemNaTela> AoReenviar { get; set; }
 

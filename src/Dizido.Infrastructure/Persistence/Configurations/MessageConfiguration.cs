@@ -67,6 +67,15 @@ internal sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Ignore(m => m.IsDeleted);
         builder.Ignore(m => m.IsEdited);
         builder.Ignore(m => m.IsSystem);
+
+        // Array nativo do Postgres (uuid[]), sem tabela de junção. Menções são poucas por
+        // mensagem e sempre lidas junto com ela — um JOIN a mais em toda página do histórico
+        // custaria mais do que economizaria.
+        //
+        // O tipo em C# é Guid[], sem nada específico do Npgsql, então o Domain continua sem
+        // dependência. Quem sabe traduzir isso para uuid[] é o provedor, não a entidade.
+        builder.Property(m => m.Mentions).HasColumnType("uuid[]");
+
         builder.Ignore(m => m.HasAttachment);
     }
 }

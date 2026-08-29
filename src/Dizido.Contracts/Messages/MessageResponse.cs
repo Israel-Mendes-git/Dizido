@@ -45,7 +45,14 @@ public sealed record MessageResponse(
     /// pode estar centenas de páginas atrás no histórico, fora de tudo que o cliente carregou.
     /// Buscá-la sob demanda seria uma ida à rede por balão. O servidor manda o pedaço pronto.
     /// </remarks>
-    MessageReplyPreview? ReplyTo = null);
+    MessageReplyPreview? ReplyTo = null,
+
+    /// <summary>Quem foi citado nesta mensagem.</summary>
+    /// <remarks>
+    /// Só os identificadores: o cliente já conhece os nomes dos participantes, e mandá-los de
+    /// novo em cada mensagem seria repetir a mesma informação centenas de vezes por página.
+    /// </remarks>
+    IReadOnlyList<Guid>? MentionedUserIds = null);
 
 /// <summary>O suficiente para desenhar a citação acima de uma resposta.</summary>
 /// <param name="Excerpt">

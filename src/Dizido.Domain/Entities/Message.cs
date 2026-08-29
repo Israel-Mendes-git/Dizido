@@ -69,6 +69,22 @@ public sealed class Message
     /// <summary>Em avisos do sistema: quem foi afetado (removido, promovido...).</summary>
     public Guid? SystemTargetId { get; private set; }
 
+    /// <summary>Quem foi citado com <c>@</c> nesta mensagem.</summary>
+    /// <remarks>
+    /// <para>
+    /// Guardado como lista de identificadores, e não extraído do texto na hora de exibir.
+    /// Procurar "@Ana" no corpo seria ambíguo de três formas: nomes com espaço ("Ana Souza"),
+    /// duas pessoas com o mesmo primeiro nome, e alguém que mudou o nome de exibição depois —
+    /// aí a menção antiga deixaria de casar e sumiria.
+    /// </para>
+    /// <para>
+    /// Quem resolve o nome para o id é o cliente, no momento em que a pessoa escolhe no
+    /// autocompletar. O servidor não confia nessa escolha: valida que cada citado é membro
+    /// ativo da conversa.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<Guid> Mentions { get; private set; } = [];
+
     /// <summary>O arquivo que acompanha a mensagem, se houver.</summary>
     /// <remarks>
     /// Uma referência, e não os dados do arquivo copiados para cá: o <see cref="Attachment"/>
@@ -92,7 +108,8 @@ public sealed class Message
         Guid clientMessageId,
         DateTimeOffset now,
         Guid? replyToMessageId = null,
-        Guid? attachmentId = null)
+        Guid? attachmentId = null,
+        IReadOnlyList<Guid>? mentions = null)
     {
         // Com anexo, o texto é legenda e pode faltar: mandar uma foto sem escrever nada é o
         // caso mais comum de todos. Sem anexo, uma mensagem vazia não é mensagem.
@@ -118,6 +135,7 @@ public sealed class Message
             ClientMessageId = clientMessageId,
             ReplyToMessageId = replyToMessageId,
             AttachmentId = attachmentId,
+            Mentions = mentions ?? [],
             SentAt = now,
             Kind = MessageKind.Text,
         };

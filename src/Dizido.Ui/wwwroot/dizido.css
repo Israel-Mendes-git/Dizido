@@ -1106,3 +1106,53 @@ button { font: inherit; cursor: pointer; }
     background: var(--dz-borda);
     color: var(--dz-texto-fraco);
 }
+
+/* ---------- menções ---------- */
+
+.dz-mencao {
+    color: var(--dz-acento);
+    font-weight: 600;
+    /* Sem fundo nas menções aos outros: numa mensagem que cita cinco pessoas, cinco blocos
+       coloridos competiriam com o texto que interessa. */
+}
+
+/* A menção a VOCÊ é a que precisa saltar: é o motivo de você estar lendo esta mensagem. */
+.dz-mencao--eu {
+    background: rgb(59 130 246 / .22);
+    border-radius: 4px;
+    padding: 0 3px;
+}
+
+.dz-mencao-sugestoes {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 20px;
+    z-index: 20;
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    min-width: 220px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: var(--dz-raio);
+    box-shadow: 0 8px 24px rgb(0 0 0 / .45);
+}
+
+.dz-mencao-sugestoes button {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    padding: 7px 10px;
+    border-radius: 6px;
+}
+
+.dz-mencao-sugestoes button:hover,
+.dz-mencao-sugestoes__ativa { background: var(--dz-acento); color: #fff; }
+
+/* O formulário precisa ser o contexto de posicionamento da lista de sugestões. */
+.dz-composer { position: relative; }

@@ -86,7 +86,8 @@ internal static class MessageEndpoints
                 request.ClientMessageId,
                 clock.GetUtcNow(),
                 request.ReplyToMessageId,
-                attachment);
+                attachment,
+                request.MentionedUserIds);
 
             db.Messages.Add(message);
 
@@ -439,5 +440,9 @@ internal static class MessageEndpoints
             // e a foto não tem por que continuar aparecendo.
             m.AttachmentId is { } id && !m.IsDeleted ? anexos.GetValueOrDefault(id) : null,
 
-            m.ReplyToMessageId is { } original ? citacoes.GetValueOrDefault(original) : null);
+            m.ReplyToMessageId is { } original ? citacoes.GetValueOrDefault(original) : null,
+
+            // Menções não sobrevivem ao apagamento: o corpo sumiu, e destacar um nome numa
+            // mensagem que não existe mais só confundiria.
+            m.IsDeleted ? null : m.Mentions);
 }

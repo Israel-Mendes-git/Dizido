@@ -16,7 +16,14 @@ public sealed record SendMessageRequest(
     Guid ClientMessageId,
     string Body,
     Guid? ReplyToMessageId = null,
-    Guid? AttachmentId = null);
+    Guid? AttachmentId = null,
+
+    /// <summary>Quem foi citado com <c>@</c>.</summary>
+    /// <remarks>
+    /// O cliente manda os identificadores, resolvidos no autocompletar — não o texto. O
+    /// servidor confere que cada um participa da conversa antes de aceitar.
+    /// </remarks>
+    IReadOnlyList<Guid>? MentionedUserIds = null);
 
 /// <summary>Corpo do PATCH que edita uma mensagem já enviada.</summary>
 /// <remarks>

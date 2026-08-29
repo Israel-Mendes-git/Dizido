@@ -1,0 +1,104 @@
+@* O texto de uma mensagem, com as menções destacadas. *@
+
+@foreach (var pedaco in Pedacos)
+{
+    if (pedaco.EhMencao)
+    {
+        <span class="dz-mencao @(pedaco.SouEu ? "dz-mencao--eu" : null)">@pedaco.Texto</span>
+    }
+    else
+    {
+        @pedaco.Texto
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public string Texto { get; set; } = string.Empty;
+
+    /// <summary>Quem foi citado, na ordem em que o servidor gravou.</summary>
+    [Parameter] public IReadOnlyList<Guid>? Mencionados { get; set; }
+
+    /// <summary>Nomes dos participantes, para reconhecer qual "@Fulano" é uma menção de fato.</summary>
+    [Parameter] public IReadOnlyList<ConversationMemberResponse> Membros { get; set; } = [];
+
+    [Parameter] public Guid MeuId { get; set; }
+
+    private sealed record Pedaco(string Texto, bool EhMencao, bool SouEu);
+
+    /// <summary>
+    /// Quebra o texto em trechos comuns e menções.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A lista de citados vem do servidor; o que se procura no texto é o nome de <b>cada um
+    /// deles</b>, e não um padrão genérico de <c>@palavra</c>. A diferença importa: alguém que
+    /// escreve "manda email para contato@exemplo.com" não vira menção, e um nome com espaço
+    /// ("@Ana Souza") é reconhecido inteiro.
+    /// </para>
+    /// <para>
+    /// Se a pessoa foi citada mas o nome dela mudou desde então, o destaque não aparece — o
+    /// texto antigo continua com o nome antigo. A menção em si (e a notificação) continua
+    /// valendo, porque ela está guardada por id.
+    /// </para>
+    /// </remarks>
+    private IEnumerable<Pedaco> Pedacos
+    {
+        get
+        {
+            if (Mencionados is not { Count: > 0 } || string.IsNullOrEmpty(Texto))
+            {
+                return [new Pedaco(Texto, false, false)];
+            }
+
+            // Nomes maiores primeiro: com "Ana" e "Ana Souza" na conversa, procurar o curto
+            // antes destacaria só metade do nome longo.
+            var alvos = Membros
+                .Where(m => Mencionados.Contains(m.UserId))
+                .Select(m => (Rotulo: $"@{m.DisplayName}", m.UserId))
+                .OrderByDescending(a => a.Rotulo.Length)
+                .ToList();
+
+            return Quebrar(Texto, alvos);
+        }
+    }
+
+    private IEnumerable<Pedaco> Quebrar(string texto, List<(string Rotulo, Guid UserId)> alvos)
+    {
+        var pedacos = new List<Pedaco>();
+        var posicao = 0;
+
+        while (posicao < texto.Length)
+        {
+            var achou = false;
+
+            foreach (var (rotulo, userId) in alvos)
+            {
+                if (string.CompareOrdinal(texto, posicao, rotulo, 0, rotulo.Length) == 0)
+                {
+                    pedacos.Add(new Pedaco(rotulo, true, userId == MeuId));
+                    posicao += rotulo.Length;
+                    achou = true;
+                    break;
+                }
+            }
+
+            if (!achou)
+            {
+                // Acumula o texto comum caractere a caractere. É o suficiente para uma
+                // mensagem de até 4000 caracteres, e evita um segundo laço de índices.
+                var inicio = posicao;
+
+                while (posicao < texto.Length
+                       && !alvos.Exists(a =>
+                           string.CompareOrdinal(texto, posicao, a.Rotulo, 0, a.Rotulo.Length) == 0))
+                {
+                    posicao++;
+                }
+
+                pedacos.Add(new Pedaco(texto[inicio..posicao], false, false));
+            }
+        }
+
+        return pedacos;
+    }
+}

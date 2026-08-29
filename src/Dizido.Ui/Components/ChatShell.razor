@@ -86,6 +86,7 @@ else
                                AoReenviar="Store.ReenviarAsync"
                                AoExpirarAnexo="RenovarAnexo"
                                PodeModerar="EuModeroAConversaAtiva"
+                               Membros="@(ConversaAtivaObj?.Members ?? [])"
                                AoEditar="EditarMensagem"
                                AoApagar="ApagarMensagem"
                                AoResponder="ComecarResposta">
@@ -108,6 +109,8 @@ else
                    ponto da fila de saída: a mensagem entra na fila e sai sozinha quando a
                    rede voltar, mesmo que o usuário feche o navegador antes disso. *@
                 <MessageComposer AoEnviar="Enviar"
+                                 Membros="@(ConversaAtivaObj?.Members ?? [])"
+                                 MeuId="@(Sessao.UserId ?? Guid.Empty)"
                                  AoEnviarArquivo="EnviarArquivo"
                                  RespondendoA="_respondendoA"
                                  AoCancelarResposta="() => _respondendoA = null"
@@ -307,11 +310,11 @@ else
         }
     }
 
-    private async Task Enviar(string texto)
+    private async Task Enviar(MessageComposer.TextoEnviado enviado)
     {
         if (Store.ConversaAtiva is { } ativa)
         {
-            await Store.EnviarAsync(ativa, texto, respondendoA: _respondendoA);
+            await Store.EnviarAsync(ativa, enviado.Texto, respondendoA: _respondendoA, citados: enviado.Citados);
             _respondendoA = null;
         }
     }

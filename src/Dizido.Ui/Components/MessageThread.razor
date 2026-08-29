@@ -66,7 +66,9 @@
                            PodeModerar="PodeModerar"
                            AoEditar="AoEditar"
                            AoApagar="AoApagar"
-                           AoResponder="AoResponder" />
+                           AoResponder="AoResponder"
+                           Membros="Membros"
+                           MeuId="MeuId" />
         }
     </div>
 
@@ -116,6 +118,9 @@
 
     /// <summary>Se quem está vendo administra este grupo — libera apagar mensagem alheia.</summary>
     [Parameter] public bool PodeModerar { get; set; }
+
+    /// <summary>Participantes, para o balão reconhecer os nomes citados.</summary>
+    [Parameter] public IReadOnlyList<ConversationMemberResponse> Membros { get; set; } = [];
 
     /// <summary>Repassados ao balão. Devolvem a mensagem de erro, ou null.</summary>
     [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoEditar { get; set; }

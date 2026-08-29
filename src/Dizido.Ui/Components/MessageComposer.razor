@@ -39,13 +39,33 @@
         <InputFile OnChange="AoEscolherArquivo" disabled="@(Desabilitado || _enviandoArquivo)" />
     </label>
 
+    @if (_sugestoes.Count > 0)
+    {
+        @* Acima do campo, não abaixo: o campo fica na base da tela, e uma lista para baixo
+           sairia da área visível. *@
+        <ul class="dz-mencao-sugestoes" role="listbox" aria-label="Citar participante">
+            @foreach (var (membro, indice) in _sugestoes.Select((m, i) => (m, i)))
+            {
+                <li @key="membro.UserId">
+                    <button type="button"
+                            role="option"
+                            aria-selected="@(indice == _sugestaoAtiva)"
+                            class="@(indice == _sugestaoAtiva ? "dz-mencao-sugestoes__ativa" : null)"
+                            @onclick="() => EscolherMencao(membro)">
+                        @membro.DisplayName
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+
     <textarea @ref="_campo"
               class="dz-composer__campo"
               rows="1"
               placeholder="Escreva uma mensagem"
               disabled="@Desabilitado"
-              @bind="_texto"
-              @bind:event="oninput"
+              value="@_texto"
+              @oninput="AoMudarTexto"
               @onkeydown="AoTeclar"></textarea>
 
     <button type="submit" class="dz-composer__enviar"
@@ -69,7 +89,11 @@
 
     [Parameter] public bool Desabilitado { get; set; }
 
-    [Parameter, EditorRequired] public EventCallback<string> AoEnviar { get; set; }
+    /// <summary>Envia o texto com a lista de quem foi citado.</summary>
+    [Parameter, EditorRequired] public EventCallback<TextoEnviado> AoEnviar { get; set; }
+
+    /// <summary>O que sai do compositor: texto e quem foi citado nele.</summary>
+    public sealed record TextoEnviado(string Texto, IReadOnlyList<Guid> Citados);
 
     /// <summary>
     /// Envia um arquivo com legenda opcional. Devolve a mensagem de erro, ou <c>null</c>.
@@ -96,6 +120,98 @@
     /// <summary>O que o usuário escolheu, pronto para subir.</summary>
     public sealed record ArquivoEscolhido(string Nome, string ContentType, long Tamanho, Stream Conteudo, string Legenda);
 
+    /// <summary>Participantes que podem ser citados com <c>@</c>.</summary>
+    [Parameter] public IReadOnlyList<ConversationMemberResponse> Membros { get; set; } = [];
+
+    /// <summary>Quem está escrevendo — não faz sentido citar a si mesmo.</summary>
+    [Parameter] public Guid MeuId { get; set; }
+
+    private List<ConversationMemberResponse> _sugestoes = [];
+    private int _sugestaoAtiva;
+
+    /// <summary>
+    /// Quem já foi citado nesta mensagem.
+    /// </summary>
+    /// <remarks>
+    /// Acumulado conforme a pessoa escolhe no autocompletar. Na hora de enviar, a lista é
+    /// filtrada pelo que ainda está escrito no texto: quem digitou "@Ana" e apagou depois não
+    /// deve ser notificado.
+    /// </remarks>
+    private readonly List<ConversationMemberResponse> _citados = [];
+
+    /// <summary>
+    /// Procura um <c>@</c> em digitação no fim do texto e sugere quem combina.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// O gatilho é o último <c>@</c> do texto, e só vale se não houver espaço depois dele — ou
+    /// se o que vem depois ainda casar com o começo de algum nome. É o que permite citar
+    /// "Ana Souza" (com espaço) sem que a lista suma no meio do sobrenome.
+    /// </para>
+    /// <para>
+    /// Um <c>@</c> colado em outra palavra não dispara nada: "contato@exemplo.com" continua
+    /// sendo um email.
+    /// </para>
+    /// </remarks>
+    private void AtualizarSugestoes()
+    {
+        _sugestoes = [];
+        _sugestaoAtiva = 0;
+
+        var arroba = _texto.LastIndexOf('@');
+
+        if (arroba < 0)
+        {
+            return;
+        }
+
+        // Precisa estar no começo ou depois de um espaço. Sem isto, um email viraria menção.
+        if (arroba > 0 && !char.IsWhiteSpace(_texto[arroba - 1]))
+        {
+            return;
+        }
+
+        var termo = _texto[(arroba + 1)..];
+
+        _sugestoes = [.. Membros
+            .Where(m => m.UserId != MeuId)
+            .Where(m => m.DisplayName.StartsWith(termo, StringComparison.CurrentCultureIgnoreCase))
+            .Take(6)];
+    }
+
+    private async Task EscolherMencao(ConversationMemberResponse membro)
+    {
+        var arroba = _texto.LastIndexOf('@');
+
+        if (arroba >= 0)
+        {
+            // O espaço no fim é o que permite continuar escrevendo sem colar no nome — e é o
+            // que faz a sugestão sumir, porque o termo deixa de casar.
+            _texto = _texto[..arroba] + $"@{membro.DisplayName} ";
+        }
+
+        if (!_citados.Exists(c => c.UserId == membro.UserId))
+        {
+            _citados.Add(membro);
+        }
+
+        _sugestoes = [];
+        await _campo.FocusAsync();
+    }
+
+    /// <summary>
+    /// Quem continua citado no texto atual.
+    /// </summary>
+    /// <remarks>
+    /// Confere o texto em vez de confiar na lista acumulada: quem escolheu alguém e depois
+    /// apagou o nome não quer mais citá-lo — e notificá-lo seria uma interrupção que a pessoa
+    /// não pediu e nem consegue explicar.
+    /// </remarks>
+    private IReadOnlyList<Guid> CitadosNoTexto() =>
+        [.. _citados
+            .Where(c => _texto.Contains($"@{c.DisplayName}", StringComparison.Ordinal))
+            .Select(c => c.UserId)];
+
     /// <summary>
     /// Enter envia; Shift+Enter quebra linha.
     /// </summary>
@@ -103,15 +219,51 @@
     /// É a convenção de todo app de mensagem, e contrariá-la é o tipo de detalhe que faz o
     /// usuário achar o produto estranho sem saber explicar por quê.
     /// </remarks>
+    /// <summary>Atualiza o texto e reavalia as sugestões de menção.</summary>
+    /// <remarks>
+    /// oninput em vez de bind: o @bind atualiza o campo, mas não dá gancho para reagir à
+    /// mudança. E precisa ser oninput, não onkeydown — colar um texto com @ tem que sugerir
+    /// igual.
+    /// </remarks>
+    private async Task AoMudarTexto(ChangeEventArgs e)
+    {
+        _texto = e.Value?.ToString() ?? string.Empty;
+
+        AtualizarSugestoes();
+
+        await SinalizarDigitacao();
+    }
+
     private async Task AoTeclar(KeyboardEventArgs e)
     {
+        // Com a lista de sugestões aberta, as setas e o Enter pertencem a ela — não ao envio.
+        // Sem este desvio, escolher alguém com o teclado mandaria a mensagem pela metade.
+        if (_sugestoes.Count > 0)
+        {
+            switch (e.Key)
+            {
+                case "ArrowDown":
+                    _sugestaoAtiva = (_sugestaoAtiva + 1) % _sugestoes.Count;
+                    return;
+
+                case "ArrowUp":
+                    _sugestaoAtiva = (_sugestaoAtiva - 1 + _sugestoes.Count) % _sugestoes.Count;
+                    return;
+
+                case "Enter" or "Tab":
+                    await EscolherMencao(_sugestoes[_sugestaoAtiva]);
+                    return;
+
+                case "Escape":
+                    _sugestoes = [];
+                    return;
+            }
+        }
+
         if (e.Key == "Enter" && !e.ShiftKey)
         {
             await Enviar();
-            return;
         }
-
-        await SinalizarDigitacao();
     }
 
     /// <summary>
@@ -197,8 +349,15 @@
         }
         else if (!string.IsNullOrEmpty(texto))
         {
+            // Os citados são apurados ANTES de limpar o campo: CitadosNoTexto() confere quais
+            // nomes ainda estão escritos, e num campo já vazio a resposta é sempre "nenhum".
+            var citados = CitadosNoTexto();
+
             _texto = string.Empty;
-            await AoEnviar.InvokeAsync(texto);
+            _citados.Clear();
+            _sugestoes = [];
+
+            await AoEnviar.InvokeAsync(new TextoEnviado(texto, citados));
         }
 
         await _campo.FocusAsync();
