@@ -33,6 +33,9 @@ public enum SystemEventKind
     OwnershipTransferred = 5,
     RoleChanged = 6,
 
+    /// <summary>Alguém registrou uma decisão a partir de uma mensagem.</summary>
+    DecisionRegistered = 8,
+
     /// <summary>A imagem do grupo mudou (ou foi removida).</summary>
     AvatarChanged = 7,
 }

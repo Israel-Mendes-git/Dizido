@@ -68,7 +68,8 @@
                            AoApagar="AoApagar"
                            AoResponder="AoResponder"
                            Membros="Membros"
-                           MeuId="MeuId" />
+                           MeuId="MeuId"
+                           AoRegistrarDecisao="AoRegistrarDecisao" />
         }
     </div>
 
@@ -121,6 +122,9 @@
 
     /// <summary>Participantes, para o balão reconhecer os nomes citados.</summary>
     [Parameter] public IReadOnlyList<ConversationMemberResponse> Membros { get; set; } = [];
+
+    /// <summary>Repassado ao balão: registrar a mensagem como decisão.</summary>
+    [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoRegistrarDecisao { get; set; }
 
     /// <summary>Repassados ao balão. Devolvem a mensagem de erro, ou null.</summary>
     [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoEditar { get; set; }

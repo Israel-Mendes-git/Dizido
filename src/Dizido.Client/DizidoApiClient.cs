@@ -1,6 +1,7 @@
 using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Auth;
 using Dizido.Contracts.Conversations;
+using Dizido.Contracts.Decisions;
 using Dizido.Contracts.Messages;
 using Dizido.Contracts.Sync;
 using Dizido.Contracts.Users;
@@ -198,6 +199,35 @@ public sealed class DizidoApiClient(HttpClient http, DizidoSession session)
         Guid conversationId, Guid messageId, CancellationToken ct = default) =>
         ExecutarAsync(() => http.DeleteAsync(
             $"api/conversations/{conversationId}/messages/{messageId}", ct), ct);
+
+    // ----- decisões -----
+
+    /// <summary>Registra uma decisão a partir de uma mensagem.</summary>
+    public async Task<(DecisionResponse? Decisao, string? Erro)> RegisterDecisionAsync(
+        Guid conversationId, Guid messageId, string resumo,
+        Guid? revendo = null, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync(
+            $"api/conversations/{conversationId}/decisions",
+            new RegisterDecisionRequest(messageId, resumo, revendo), ct);
+
+        return res.IsSuccessStatusCode
+            ? (await res.Content.ReadFromJsonAsync<DecisionResponse>(ct), null)
+            : (null, await LerProblemaAsync(res, ct));
+    }
+
+    /// <param name="incluirRevistas">
+    /// Traz também as decisões já substituídas — é o que permite ver a corrente inteira.
+    /// </param>
+    public async Task<IReadOnlyList<DecisionResponse>> GetDecisionsAsync(
+        Guid conversationId, bool incluirRevistas = false, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<List<DecisionResponse>>(
+            $"api/conversations/{conversationId}/decisions?incluirRevistas={incluirRevistas}", ct) ?? [];
+
+    public Task<string?> DeleteDecisionAsync(
+        Guid conversationId, Guid decisionId, CancellationToken ct = default) =>
+        ExecutarAsync(() => http.DeleteAsync(
+            $"api/conversations/{conversationId}/decisions/{decisionId}", ct), ct);
 
     // ----- anexos -----
 

@@ -89,12 +89,17 @@ else
                                Membros="@(ConversaAtivaObj?.Members ?? [])"
                                AoEditar="EditarMensagem"
                                AoApagar="ApagarMensagem"
-                               AoResponder="ComecarResposta">
+                               AoResponder="ComecarResposta"
+                               AoRegistrarDecisao="RegistrarDecisao">
                     <Acoes>
                         <MuteButton ConversaId="ativa"
                                     SilenciadaAte="@MinhaLinhaNaAtiva?.MutedUntil"
                                     Api="Api"
                                     AoMudar="RecarregarConversas" />
+
+                        <button type="button" class="dz-botao" @onclick="() => _painelDecisoes = !_painelDecisoes">
+                            decisões
+                        </button>
 
                         @if (ConversaAtivaEhGrupo)
                         {
@@ -115,6 +120,14 @@ else
                                  RespondendoA="_respondendoA"
                                  AoCancelarResposta="() => _respondendoA = null"
                                  AoDigitar="d => Conexao.SetTypingAsync(ativa, d)" />
+
+                @if (_painelDecisoes)
+                {
+                    <DecisionPanel ConversaId="ativa"
+                                   MeuId="@(Sessao.UserId ?? Guid.Empty)"
+                                   Api="Api"
+                                   AoFechar="() => _painelDecisoes = false" />
+                }
 
                 @if (_painelGrupo && ConversaAtivaObj is { } grupo && ConversaAtivaEhGrupo)
                 {
@@ -169,6 +182,7 @@ else
 
     private Painel _painel = Painel.Nenhum;
     private bool _painelGrupo;
+    private bool _painelDecisoes;
     private string _tituloGrupo = string.Empty;
     private IReadOnlyList<UserResponse> _usuarios = [];
     private HubConnectionState _estadoConexao = HubConnectionState.Disconnected;
@@ -379,6 +393,15 @@ else
 
     private Task<string?> ApagarMensagem(MensagemNaTela mensagem) =>
         Store.ApagarAsync(mensagem.Dados.ConversationId, mensagem.Dados.Id);
+
+    /// <summary>Registra a mensagem como decisão da conversa.</summary>
+    private async Task<string?> RegistrarDecisao(MensagemNaTela mensagem, string resumo)
+    {
+        var (_, erro) = await Api.RegisterDecisionAsync(
+            mensagem.Dados.ConversationId, mensagem.Dados.Id, resumo);
+
+        return erro;
+    }
 
     private async Task<string?> EnviarArquivo(MessageComposer.ArquivoEscolhido arquivo)
     {

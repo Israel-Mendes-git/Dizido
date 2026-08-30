@@ -39,6 +39,10 @@
                     : $"{autor} removeu a administração de {alvo}",
                 "AvatarChanged" => $"{autor} mudou a imagem do grupo",
 
+                // O único aviso de sistema que carrega texto próprio: o resumo é escrito por
+                // uma pessoa e não tem como ser remontado a partir de um código.
+                "DecisionRegistered" => $"{autor} registrou uma decisão: {Mensagem.Body}",
+
                 // Fallback para um evento que o servidor conhece e esta versão do cliente
                 // ainda não. Acontece de verdade: num app instalado, o servidor atualiza e o
                 // navegador de alguém continua com o pacote antigo em cache. Uma frase vaga é

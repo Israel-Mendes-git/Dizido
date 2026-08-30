@@ -1,0 +1,129 @@
+@* Painel de decisões da conversa. *@
+
+<aside class="dz-decisoes">
+    <header class="dz-decisoes__topo">
+        <h2>Decisões</h2>
+        <button type="button" class="dz-botao-texto" @onclick="AoFechar">fechar</button>
+    </header>
+
+    @if (_erro is not null)
+    {
+        <p class="dz-login__erro" role="alert">@_erro</p>
+    }
+
+    <label class="dz-decisoes__filtro">
+        <input type="checkbox" checked="@_incluirRevistas" @onchange="AlternarRevistas" />
+        mostrar as que já foram revistas
+    </label>
+
+    @if (_carregando)
+    {
+        <p class="dz-vazio">carregando…</p>
+    }
+    else if (_decisoes.Count == 0)
+    {
+        <p class="dz-vazio">
+            Nada registrado ainda.<br />
+            Passe o ponteiro numa mensagem e use <strong>decisão</strong> para guardar
+            o que ficou combinado.
+        </p>
+    }
+    else
+    {
+        <ul class="dz-decisoes__lista" role="list">
+            @foreach (var decisao in _decisoes)
+            {
+                <li @key="decisao.Id" class="@(decisao.SupersededByDecisionId is null ? null : "dz-decisao--revista")">
+                    <p class="dz-decisao__resumo">@decisao.Summary</p>
+
+                    @* O trecho da mensagem é o elo com a discussão: é o que separa isto de um
+                       documento à parte, escrito fora de contexto. *@
+                    @if (!string.IsNullOrEmpty(decisao.MessageExcerpt))
+                    {
+                        <p class="dz-decisao__origem">“@decisao.MessageExcerpt”</p>
+                    }
+
+                    <p class="dz-decisao__meta">
+                        <span>@decisao.RegisteredByName</span>
+                        <time datetime="@decisao.RegisteredAt.ToString("o")">
+                            @decisao.RegisteredAt.ToLocalTime().ToString("dd/MM/yyyy")
+                        </time>
+
+                        @if (decisao.SupersededByDecisionId is not null)
+                        {
+                            <span class="dz-decisao__marca">revista depois</span>
+                        }
+
+                        @if (decisao.RegisteredById == MeuId)
+                        {
+                            <button type="button" class="dz-botao-texto"
+                                    @onclick="() => ApagarAsync(decisao)">desfazer</button>
+                        }
+                    </p>
+                </li>
+            }
+        </ul>
+    }
+</aside>
+
+@code {
+    private bool _carregando = true;
+    private bool _incluirRevistas;
+    private string? _erro;
+    private IReadOnlyList<DecisionResponse> _decisoes = [];
+    private Guid _ultimaConversa;
+
+    [Parameter, EditorRequired] public Guid ConversaId { get; set; }
+
+    [Parameter] public Guid MeuId { get; set; }
+
+    [Parameter, EditorRequired] public DizidoApiClient Api { get; set; } = null!;
+
+    [Parameter] public EventCallback AoFechar { get; set; }
+
+    /// <summary>
+    /// Recarrega quando o painel abre em outra conversa.
+    /// </summary>
+    /// <remarks>
+    /// O componente é reaproveitado entre conversas; sem esta checagem, ele mostraria as
+    /// decisões da conversa anterior até alguém mexer em alguma coisa.
+    /// </remarks>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_ultimaConversa != ConversaId)
+        {
+            _ultimaConversa = ConversaId;
+            await CarregarAsync();
+        }
+    }
+
+    private async Task CarregarAsync()
+    {
+        _carregando = true;
+
+        try
+        {
+            _decisoes = await Api.GetDecisionsAsync(ConversaId, _incluirRevistas);
+        }
+        finally
+        {
+            _carregando = false;
+        }
+    }
+
+    private async Task AlternarRevistas(ChangeEventArgs e)
+    {
+        _incluirRevistas = e.Value is true;
+        await CarregarAsync();
+    }
+
+    private async Task ApagarAsync(DecisionResponse decisao)
+    {
+        _erro = await Api.DeleteDecisionAsync(ConversaId, decisao.Id);
+
+        if (_erro is null)
+        {
+            await CarregarAsync();
+        }
+    }
+}

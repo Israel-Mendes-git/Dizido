@@ -177,6 +177,19 @@ public sealed class Message
             SystemTargetId = targetId,
         };
 
+    /// <summary>
+    /// O aviso no fluxo de que alguém registrou uma decisão.
+    /// </summary>
+    /// <remarks>
+    /// Diferente dos outros avisos de sistema, este carrega texto no corpo — o resumo da
+    /// decisão. Os demais guardam só o código do evento, para a interface montar a frase e
+    /// poder dizer "você"; aqui o conteúdo é escrito por uma pessoa e não tem como ser
+    /// remontado a partir de um código.
+    /// </remarks>
+    internal static Message CreateSystemForDecision(
+        Guid conversationId, Guid actorId, DateTimeOffset now, string resumo) =>
+        CreateSystem(conversationId, actorId, SystemEventKind.DecisionRegistered, now, body: resumo);
+
     public void Edit(Guid editorId, string body, DateTimeOffset now)
     {
         DomainException.Require(!IsSystem, "Avisos do sistema não podem ser editados.");

@@ -99,10 +99,38 @@
             </button>
         }
 
+        @if (_registrandoDecisao)
+        {
+            <div class="dz-decisao-registro">
+                <label>
+                    O que ficou decidido?
+                    <input type="text" maxlength="280"
+                           placeholder="e o porquê, em uma linha"
+                           aria-label="Resumo da decisão"
+                           @bind="_resumoDaDecisao" @bind:event="oninput" />
+                </label>
+
+                @if (_erro is not null)
+                {
+                    <p class="dz-bubble__erro" role="alert">@_erro</p>
+                }
+
+                <div class="dz-bubble__edicao-acoes">
+                    <button type="button" class="dz-bubble__acao"
+                            @onclick="CancelarDecisao">cancelar</button>
+                    <button type="button" class="dz-bubble__acao dz-bubble__acao--principal"
+                            disabled="@(_salvandoDecisao || string.IsNullOrWhiteSpace(_resumoDaDecisao))"
+                            @onclick="RegistrarDecisao">
+                        @(_salvandoDecisao ? "registrando…" : "registrar")
+                    </button>
+                </div>
+            </div>
+        }
+
         @* As ações ficam escondidas até o ponteiro passar pelo balão (regra de CSS), mas
            continuam no DOM e alcançáveis por teclado — o contrário excluiria quem não usa
            mouse de editar as próprias mensagens. *@
-        @if (PodeResponder || PodeEditar || PodeApagar)
+        @if (PodeResponder || PodeEditar || PodeApagar || PodeRegistrarDecisao)
         {
             <div class="dz-bubble__acoes">
                 @if (PodeResponder)
@@ -110,6 +138,14 @@
                     <button type="button" class="dz-bubble__acao"
                             title="Responder" aria-label="Responder a esta mensagem"
                             @onclick="Responder">responder</button>
+                }
+
+                @if (PodeRegistrarDecisao)
+                {
+                    <button type="button" class="dz-bubble__acao"
+                            title="Guardar o que ficou combinado aqui"
+                            aria-label="Registrar esta mensagem como decisão"
+                            @onclick="AbrirDecisao">decisão</button>
                 }
 
                 @if (PodeEditar)
@@ -133,6 +169,9 @@
 @code {
     private bool _editando;
     private bool _salvando;
+    private bool _registrandoDecisao;
+    private bool _salvandoDecisao;
+    private string _resumoDaDecisao = string.Empty;
     private string _rascunho = string.Empty;
     private string? _erro;
 
@@ -227,6 +266,63 @@
     private Task Reenviar() => AoReenviar.InvokeAsync(Mensagem);
 
     private Task Responder() => AoResponder.InvokeAsync(Mensagem);
+
+    /// <summary>
+    /// Registra a mensagem como decisão. Devolve a mensagem de erro, ou <c>null</c>.
+    /// </summary>
+    /// <remarks>
+    /// Qualquer participante pode registrar, não só administradores: quem percebe que algo
+    /// ficou decidido raramente é quem manda no grupo.
+    /// </remarks>
+    [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoRegistrarDecisao { get; set; }
+
+    private bool PodeRegistrarDecisao =>
+        AoRegistrarDecisao is not null
+        && !Mensagem.Dados.IsDeleted
+        && !Mensagem.EhProvisoria
+        && Mensagem.Dados.Kind != "System"
+        && !_editando
+        && !_registrandoDecisao;
+
+    private void AbrirDecisao()
+    {
+        // O texto da mensagem entra como ponto de partida, para editar em vez de escrever do
+        // zero. Mas continua editável de propósito: o valor da decisão está no resumo que
+        // alguém escreve, não no que foi dito no calor da conversa.
+        _resumoDaDecisao = Mensagem.Dados.Body.Length <= 280
+            ? Mensagem.Dados.Body
+            : Mensagem.Dados.Body[..280];
+
+        _erro = null;
+        _registrandoDecisao = true;
+    }
+
+    private void CancelarDecisao()
+    {
+        _registrandoDecisao = false;
+        _erro = null;
+    }
+
+    private async Task RegistrarDecisao()
+    {
+        _salvandoDecisao = true;
+        _erro = null;
+
+        try
+        {
+            _erro = await AoRegistrarDecisao!(Mensagem, _resumoDaDecisao.Trim());
+
+            if (_erro is null)
+            {
+                _registrandoDecisao = false;
+                _resumoDaDecisao = string.Empty;
+            }
+        }
+        finally
+        {
+            _salvandoDecisao = false;
+        }
+    }
 
     private void Editar()
     {

@@ -1156,3 +1156,103 @@ button { font: inherit; cursor: pointer; }
 
 /* O formulário precisa ser o contexto de posicionamento da lista de sugestões. */
 .dz-composer { position: relative; }
+
+/* ---------- decisões ---------- */
+
+.dz-decisao-registro {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgb(255 255 255 / .12);
+}
+
+.dz-decisao-registro label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+
+.dz-decisao-registro input {
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-acento);
+    border-radius: var(--dz-raio);
+    color: inherit;
+    font: inherit;
+    padding: 7px 10px;
+    min-width: 260px;
+}
+
+.dz-decisoes {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 360px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    background: var(--dz-painel);
+    border-left: 1px solid var(--dz-borda);
+    overflow-y: auto;
+}
+
+.dz-decisoes__topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.dz-decisoes__topo h2 { margin: 0; font-size: 16px; }
+
+.dz-decisoes__filtro {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--dz-texto-fraco);
+}
+
+.dz-decisoes__lista {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dz-decisoes__lista li {
+    background: var(--dz-painel-2);
+    border-left: 3px solid var(--dz-online);
+    border-radius: var(--dz-raio);
+    padding: 10px 12px;
+}
+
+/* Revista: continua na lista, mas apagada. A corrente é o valor — "decidido em março,
+   revisto em agosto" diz mais do que só a versão atual. */
+.dz-decisao--revista { opacity: .55; border-left-color: var(--dz-texto-fraco) !important; }
+
+.dz-decisao__resumo { margin: 0 0 6px; font-weight: 600; }
+
+.dz-decisao__origem {
+    margin: 0 0 6px;
+    font-size: 12.5px;
+    color: var(--dz-texto-fraco);
+    font-style: italic;
+}
+
+.dz-decisao__meta {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: var(--dz-texto-fraco);
+}
+
+.dz-decisao__marca {
+    background: var(--dz-borda);
+    border-radius: 999px;
+    padding: 1px 8px;
+}
