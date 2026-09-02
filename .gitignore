@@ -482,3 +482,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Documentos internos do projeto (PLANO, HANDOFF, RUMO). Ficam na máquina, fora do
+# repositório: são notas de trabalho e rumo de produto, não documentação de quem chega.
+# Um README, se um dia existir, é a exceção — esse é justamente para quem chega.
+*.md
+!README.md
