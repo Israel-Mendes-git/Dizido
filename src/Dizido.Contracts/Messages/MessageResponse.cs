@@ -1,3 +1,5 @@
+using Dizido.Contracts.Reactions;
+
 namespace Dizido.Contracts.Messages;
 
 /// <summary>Uma mensagem como o cliente a enxerga.</summary>
@@ -52,7 +54,21 @@ public sealed record MessageResponse(
     /// Só os identificadores: o cliente já conhece os nomes dos participantes, e mandá-los de
     /// novo em cada mensagem seria repetir a mesma informação centenas de vezes por página.
     /// </remarks>
-    IReadOnlyList<Guid>? MentionedUserIds = null);
+    IReadOnlyList<Guid>? MentionedUserIds = null,
+
+    /// <summary>As reações a esta mensagem, agrupadas por emoji.</summary>
+    /// <remarks>
+    /// Vêm junto com a mensagem, e não por uma chamada à parte, pelo mesmo motivo do anexo e
+    /// da citação: o balão precisa desenhar tudo de uma vez. Uma segunda chamada por mensagem
+    /// seriam cinquenta idas à rede para abrir uma conversa.
+    /// <para>
+    /// <b>Isto é o estado completo</b>, não uma diferença. É o que torna seguro substituir a
+    /// mensagem inteira quando ela chega pelo tempo real — inclusive numa edição, que reaproveita
+    /// o mesmo <c>MessageReceived</c>. Se este campo viesse vazio numa resposta de edição, editar
+    /// uma mensagem apagaria as reações dela da tela de todo mundo.
+    /// </para>
+    /// </remarks>
+    IReadOnlyList<ReactionSummary>? Reactions = null);
 
 /// <summary>O suficiente para desenhar a citação acima de uma resposta.</summary>
 /// <param name="Excerpt">

@@ -1,0 +1,113 @@
+@* As reações de um balão: o que já foi reagido, e o seletor para reagir. *@
+
+@if (Reacoes.Count > 0 || Escolhendo)
+{
+    <div class="dz-reacoes">
+        @foreach (var grupo in Reacoes)
+        {
+            @* @key pelo emoji: sem ele, o Blazor reaproveita o botão da posição e a contagem
+               de um emoji apareceria por um instante sob o desenho de outro quando o primeiro
+               da lista some. *@
+            <button @key="grupo.Emoji"
+                    type="button"
+                    class="dz-reacao @(EhMinha(grupo) ? "dz-reacao--minha" : null)"
+                    disabled="@Ocupado"
+                    title="@Quem(grupo)"
+                    aria-pressed="@EhMinha(grupo)"
+                    aria-label="@($"{Quem(grupo)}. {(EhMinha(grupo) ? "Tirar sua reação" : "Reagir também")}")"
+                    @onclick="() => Alternar(grupo.Emoji)">
+                <span class="dz-reacao__emoji">@grupo.Emoji</span>
+                <span class="dz-reacao__contagem">@grupo.UserIds.Count</span>
+            </button>
+        }
+
+        @if (Escolhendo)
+        {
+            <div class="dz-paleta" role="group" aria-label="Escolher reação">
+                @foreach (var emoji in ReactionPalette.Emojis)
+                {
+                    <button @key="emoji"
+                            type="button"
+                            class="dz-paleta__opcao"
+                            disabled="@Ocupado"
+                            title="@emoji"
+                            aria-label="@($"Reagir com {emoji}")"
+                            @onclick="() => Alternar(emoji)">@emoji</button>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _ocupado;
+
+    /// <summary>As reações da mensagem, agrupadas por emoji.</summary>
+    [Parameter] public IReadOnlyList<ReactionSummary> Reacoes { get; set; } = [];
+
+    /// <summary>Quem está vendo — é o que decide qual bolinha aparece destacada.</summary>
+    [Parameter] public Guid MeuId { get; set; }
+
+    /// <summary>
+    /// Participantes da conversa, para dizer no <c>title</c> quem reagiu.
+    /// </summary>
+    /// <remarks>
+    /// O contrato manda identificadores, não nomes, porque a mesma mensagem vai para o grupo
+    /// inteiro e repetir os nomes em cada balão seria mandar a mesma informação dezenas de
+    /// vezes. A tradução para nome acontece aqui, onde a lista de participantes já existe.
+    /// </remarks>
+    [Parameter] public IReadOnlyList<ConversationMemberResponse> Membros { get; set; } = [];
+
+    /// <summary>Se o seletor de emojis está aberto.</summary>
+    [Parameter] public bool Escolhendo { get; set; }
+
+    /// <summary>Põe ou tira a reação. Devolve a mensagem de erro, ou <c>null</c>.</summary>
+    [Parameter] public Func<string, Task<string?>>? AoAlternar { get; set; }
+
+    /// <summary>Avisa o balão de que a escolha terminou, para ele fechar o seletor.</summary>
+    [Parameter] public EventCallback AoEscolher { get; set; }
+
+    private bool Ocupado => _ocupado || AoAlternar is null;
+
+    private bool EhMinha(ReactionSummary grupo) => grupo.UserIds.Contains(MeuId);
+
+    /// <summary>"Ana, Bruno e você reagiram com 👍" — o texto que aparece ao pousar o ponteiro.</summary>
+    private string Quem(ReactionSummary grupo)
+    {
+        var nomes = grupo.UserIds
+            .Select(id => id == MeuId
+                ? "você"
+                : Membros.FirstOrDefault(m => m.UserId == id)?.DisplayName ?? "alguém")
+            .ToList();
+
+        var lista = nomes.Count == 1
+            ? nomes[0]
+            : string.Join(", ", nomes.Take(nomes.Count - 1)) + " e " + nomes[^1];
+
+        return $"{lista} reagiu com {grupo.Emoji}";
+    }
+
+    private async Task Alternar(string emoji)
+    {
+        if (AoAlternar is null)
+        {
+            return;
+        }
+
+        // Trava enquanto a chamada está no ar. Sem isto, dois cliques rápidos no mesmo emoji
+        // mandam "põe" duas vezes — a segunda decidida antes de a primeira ter mudado o estado
+        // da tela — e o segundo pedido devia ter sido "tira".
+        _ocupado = true;
+
+        try
+        {
+            await AoAlternar(emoji);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await AoEscolher.InvokeAsync();
+    }
+}

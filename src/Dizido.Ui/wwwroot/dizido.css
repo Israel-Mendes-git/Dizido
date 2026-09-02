@@ -1256,3 +1256,82 @@ button { font: inherit; cursor: pointer; }
     border-radius: 999px;
     padding: 1px 8px;
 }
+
+/* ---------- reações ---------- */
+
+.dz-reacoes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.dz-reacao {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: 999px;
+    color: var(--dz-texto-fraco);
+    font-size: 12px;
+    line-height: 1;
+    padding: 3px 8px;
+}
+
+.dz-reacao:hover:not(:disabled) { border-color: var(--dz-acento); }
+
+.dz-reacao:disabled { cursor: default; opacity: .6; }
+
+/* A minha reação fica marcada pela borda E pelo fundo, não só pela cor do texto: quem não
+   distingue bem cores precisa de outro sinal para saber em qual delas já clicou. */
+.dz-reacao--minha {
+    border-color: var(--dz-acento);
+    background: rgb(59 130 246 / .18);
+    color: var(--dz-texto);
+}
+
+/* Dentro do balão azul (as minhas mensagens), o azul da marcação some sobre o azul do fundo
+   e a distinção some junto. Lá a marcação passa a ser feita com branco. */
+.dz-bubble--minha .dz-reacao {
+    background: rgb(255 255 255 / .14);
+    border-color: rgb(255 255 255 / .22);
+    color: #eaf1fd;
+}
+
+.dz-bubble--minha .dz-reacao:hover:not(:disabled) { border-color: #fff; }
+
+.dz-bubble--minha .dz-reacao--minha {
+    background: rgb(255 255 255 / .3);
+    border-color: #fff;
+    color: #fff;
+}
+
+/* O emoji não herda o tamanho reduzido do resto da bolinha: encolhido, ele deixa de ser
+   reconhecível de relance — que é a única razão de existir de uma reação. */
+.dz-reacao__emoji { font-size: 14px; }
+
+.dz-reacao__contagem { font-variant-numeric: tabular-nums; }
+
+.dz-paleta {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--dz-painel-2);
+    border: 1px solid var(--dz-borda);
+    border-radius: 999px;
+    padding: 2px 4px;
+}
+
+.dz-paleta__opcao {
+    background: none;
+    border: 0;
+    border-radius: 999px;
+    font-size: 16px;
+    line-height: 1;
+    padding: 3px 5px;
+}
+
+.dz-paleta__opcao:hover:not(:disabled) { background: var(--dz-borda); }
+
+.dz-paleta__opcao:disabled { cursor: default; opacity: .6; }

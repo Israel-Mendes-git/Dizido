@@ -69,7 +69,8 @@
                            AoResponder="AoResponder"
                            Membros="Membros"
                            MeuId="MeuId"
-                           AoRegistrarDecisao="AoRegistrarDecisao" />
+                           AoRegistrarDecisao="AoRegistrarDecisao"
+                           AoReagir="AoReagir" />
         }
     </div>
 
@@ -125,6 +126,9 @@
 
     /// <summary>Repassado ao balão: registrar a mensagem como decisão.</summary>
     [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoRegistrarDecisao { get; set; }
+
+    /// <summary>Repassado ao balão: pôr ou tirar uma reação.</summary>
+    [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoReagir { get; set; }
 
     /// <summary>Repassados ao balão. Devolvem a mensagem de erro, ou null.</summary>
     [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoEditar { get; set; }

@@ -90,7 +90,8 @@ else
                                AoEditar="EditarMensagem"
                                AoApagar="ApagarMensagem"
                                AoResponder="ComecarResposta"
-                               AoRegistrarDecisao="RegistrarDecisao">
+                               AoRegistrarDecisao="RegistrarDecisao"
+                               AoReagir="Reagir">
                     <Acoes>
                         <MuteButton ConversaId="ativa"
                                     SilenciadaAte="@MinhaLinhaNaAtiva?.MutedUntil"
@@ -393,6 +394,15 @@ else
 
     private Task<string?> ApagarMensagem(MensagemNaTela mensagem) =>
         Store.ApagarAsync(mensagem.Dados.ConversationId, mensagem.Dados.Id);
+
+    /// <summary>Põe ou tira a minha reação numa mensagem.</summary>
+    /// <remarks>
+    /// Passa pelo <c>ChatStore</c>, e não direto pela API como a decisão, porque aqui existe
+    /// estado a mexer na tela: é o store que sabe se a reação já é minha, que aplica o palpite
+    /// otimista e que adota a resposta do servidor no lugar dele.
+    /// </remarks>
+    private Task<string?> Reagir(MensagemNaTela mensagem, string emoji) =>
+        Store.AlternarReacaoAsync(mensagem.Dados.ConversationId, mensagem.Dados.Id, emoji);
 
     /// <summary>Registra a mensagem como decisão da conversa.</summary>
     private async Task<string?> RegistrarDecisao(MensagemNaTela mensagem, string resumo)

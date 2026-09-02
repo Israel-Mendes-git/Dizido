@@ -24,6 +24,9 @@ public interface IChatClient
 
     Task MessageDeleted(MessageDeletedEvent evt);
 
+    /// <summary>Alguém reagiu a uma mensagem, ou desfez a reação.</summary>
+    Task ReactionChanged(MessageReactionEvent evt);
+
     Task TypingChanged(TypingEvent evt);
 
     Task PresenceChanged(PresenceEvent evt);

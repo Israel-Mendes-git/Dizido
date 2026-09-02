@@ -1,6 +1,7 @@
 using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Conversations;
 using Dizido.Contracts.Messages;
+using Dizido.Contracts.Reactions;
 using Dizido.Contracts.Realtime;
 using Dizido.Contracts.Sync;
 
@@ -81,6 +82,7 @@ public sealed class ChatStore(
     {
         connection.MessageReceived += AoReceberMensagem;
         connection.MessageDeleted += AoApagarMensagem;
+        connection.ReactionChanged += AoMudarReacao;
         connection.ConversationAdded += AoAdicionarConversa;
         connection.PresenceChanged += AoMudarPresenca;
         connection.TypingChanged += AoMudarDigitacao;
@@ -92,6 +94,7 @@ public sealed class ChatStore(
     {
         connection.MessageReceived -= AoReceberMensagem;
         connection.MessageDeleted -= AoApagarMensagem;
+        connection.ReactionChanged -= AoMudarReacao;
         connection.ConversationAdded -= AoAdicionarConversa;
         connection.PresenceChanged -= AoMudarPresenca;
         connection.TypingChanged -= AoMudarDigitacao;
@@ -355,6 +358,67 @@ public sealed class ChatStore(
     /// <returns>Mensagem de erro, ou <c>null</c> se deu certo.</returns>
     public Task<string?> ApagarAsync(Guid conversationId, Guid messageId, CancellationToken ct = default) =>
         api.DeleteMessageAsync(conversationId, messageId, ct);
+
+    /// <summary>
+    /// Põe a sua reação numa mensagem, ou a tira se ela já estiver lá.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Aqui a interface é otimista</b>, ao contrário da edição. A diferença é o que está em
+    /// jogo: uma edição recusada teria mostrado um texto que nunca existiu, enquanto uma reação
+    /// recusada é um emoji que pisca e some. E reação é o gesto mais barato do aplicativo —
+    /// esperar a ida e a volta da rede para o polegar acender faria parecer travado.
+    /// </para>
+    /// <para>
+    /// Quem decide se é pôr ou tirar é o estado atual da tela, e não um "alternar" mandado ao
+    /// servidor: as duas chamadas declaram o estado desejado, então uma retentativa do mesmo
+    /// pedido não desfaz o que a anterior fez.
+    /// </para>
+    /// </remarks>
+    /// <returns>Mensagem de erro, ou <c>null</c> se deu certo.</returns>
+    public async Task<string?> AlternarReacaoAsync(
+        Guid conversationId, Guid messageId, string emoji, CancellationToken ct = default)
+    {
+        if (session.UserId is not { } eu)
+        {
+            return "Sessão encerrada.";
+        }
+
+        var minha = MinhaReacao(conversationId, messageId, emoji, eu);
+
+        AplicarReacao(conversationId, messageId, emoji, eu, adicionar: !minha);
+
+        var (reacoes, erro) = minha
+            ? await api.UnreactAsync(conversationId, messageId, emoji, ct)
+            : await api.ReactAsync(conversationId, messageId, emoji, ct);
+
+        if (erro is not null)
+        {
+            // Desfaz o palpite. Sem isto, um limite de uso estourado deixaria na tela uma
+            // reação que o servidor nunca aceitou — e ela sobreviveria até a conversa ser
+            // recarregada, porque nenhum evento virá corrigi-la.
+            AplicarReacao(conversationId, messageId, emoji, eu, adicionar: minha);
+
+            return erro;
+        }
+
+        // A resposta traz o estado completo. Adotá-lo em vez de confiar no palpite corrige de
+        // uma vez qualquer divergência — inclusive as reações que outras pessoas puseram
+        // enquanto este clique ia e voltava.
+        if (reacoes is not null)
+        {
+            SubstituirReacoes(conversationId, messageId, reacoes);
+        }
+
+        return null;
+    }
+
+    /// <summary>Você já reagiu a esta mensagem com este emoji?</summary>
+    public bool MinhaReacao(Guid conversationId, Guid messageId, string emoji, Guid eu) =>
+        MensagensDe(conversationId)
+            .FirstOrDefault(m => m.Dados.Id == messageId)?.Dados.Reactions?
+            .FirstOrDefault(r => string.Equals(r.Emoji, emoji, StringComparison.Ordinal))?
+            .UserIds.Contains(eu) ?? false;
 
     /// <summary>Fecha a conversa aberta (usado ao sair de um grupo).</summary>
     public Task SairDaConversaAtivaAsync()
@@ -625,11 +689,115 @@ public sealed class ChatStore(
                     Body = string.Empty,
                     IsDeleted = true,
                     Attachment = null,
+
+                    // As reações vão junto, como o servidor faz ao devolver uma mensagem
+                    // apagada: um balão que diz "esta mensagem foi apagada" com polegares
+                    // embaixo não faz sentido nenhum.
+                    Reactions = null,
                 },
             };
 
             Changed?.Invoke();
         }
+    }
+
+    /// <summary>Alguém pôs ou tirou uma reação numa mensagem que talvez esteja na tela.</summary>
+    /// <remarks>
+    /// O evento chega para todo o grupo, inclusive para quem clicou — que já aplicou o mesmo
+    /// efeito localmente. Não há problema: <see cref="AplicarReacao"/> trata o conjunto como
+    /// conjunto, então pôr duas vezes o que já está lá não muda nada.
+    /// </remarks>
+    private void AoMudarReacao(MessageReactionEvent evento)
+    {
+        AplicarReacao(
+            evento.ConversationId, evento.MessageId, evento.Emoji, evento.UserId, evento.Added);
+    }
+
+    /// <summary>
+    /// Aplica uma reação (ou a remoção dela) à mensagem que estiver na tela.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Idempotente de propósito, nas duas direções: adicionar quem já está na lista não duplica,
+    /// e remover quem não está não falha. É o que permite o mesmo caminho servir ao palpite
+    /// otimista do próprio clique e ao evento que volta do servidor logo depois.
+    /// </para>
+    /// <para>
+    /// Quando o último de um emoji sai, o grupo inteiro some — senão sobraria uma bolinha com
+    /// contagem zero pendurada no balão.
+    /// </para>
+    /// </remarks>
+    private void AplicarReacao(
+        Guid conversationId, Guid messageId, string emoji, Guid userId, bool adicionar)
+    {
+        var lista = Lista(conversationId);
+        var indice = lista.FindIndex(m => m.Dados.Id == messageId);
+
+        // A mensagem pode nem estar carregada: o evento vale para a conversa toda, e o cliente
+        // só tem em memória a página que abriu.
+        if (indice < 0)
+        {
+            return;
+        }
+
+        var atuais = lista[indice].Dados.Reactions ?? [];
+        var grupo = atuais.FirstOrDefault(r => string.Equals(r.Emoji, emoji, StringComparison.Ordinal));
+
+        List<ReactionSummary> novas;
+
+        if (adicionar)
+        {
+            if (grupo is not null && grupo.UserIds.Contains(userId))
+            {
+                return; // Já estava lá: nada mudou, e redesenhar à toa custa.
+            }
+
+            novas = grupo is null
+                ? [.. atuais, new ReactionSummary(emoji, [userId])]
+                : [.. atuais.Select(r => r == grupo
+                    ? r with { UserIds = [.. r.UserIds, userId] }
+                    : r)];
+        }
+        else
+        {
+            if (grupo is null || !grupo.UserIds.Contains(userId))
+            {
+                return;
+            }
+
+            var restantes = grupo.UserIds.Where(id => id != userId).ToList();
+
+            novas = [.. atuais
+                .Select(r => r == grupo ? r with { UserIds = restantes } : r)
+                .Where(r => r.UserIds.Count > 0)];
+        }
+
+        lista[indice] = lista[indice] with
+        {
+            Dados = lista[indice].Dados with { Reactions = novas },
+        };
+
+        Changed?.Invoke();
+    }
+
+    /// <summary>Adota o estado de reações que o servidor devolveu, no lugar do que estava na tela.</summary>
+    private void SubstituirReacoes(
+        Guid conversationId, Guid messageId, IReadOnlyList<ReactionSummary> reacoes)
+    {
+        var lista = Lista(conversationId);
+        var indice = lista.FindIndex(m => m.Dados.Id == messageId);
+
+        if (indice < 0)
+        {
+            return;
+        }
+
+        lista[indice] = lista[indice] with
+        {
+            Dados = lista[indice].Dados with { Reactions = reacoes },
+        };
+
+        Changed?.Invoke();
     }
 
     /// <summary>

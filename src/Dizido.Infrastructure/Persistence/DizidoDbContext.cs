@@ -39,6 +39,8 @@ public sealed class DizidoDbContext(DbContextOptions<DizidoDbContext> options)
 
     public DbSet<Decision> Decisions => Set<Decision>();
 
+    public DbSet<Reaction> Reactions => Set<Reaction>();
+
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)

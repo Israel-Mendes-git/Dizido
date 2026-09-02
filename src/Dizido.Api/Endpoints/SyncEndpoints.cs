@@ -1,5 +1,6 @@
 using Dizido.Api.Auth;
 using Dizido.Api.Conversations;
+using Dizido.Api.Reactions;
 using Dizido.Api.Realtime;
 using Dizido.Contracts.Conversations;
 using Dizido.Contracts.Messages;
@@ -92,6 +93,12 @@ internal static class SyncEndpoints
                 .Where(u => pessoas.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
 
+            // Uma mensagem que chegou enquanto você estava fora pode já ter reações — alguém
+            // respondeu com um polegar antes de você voltar. Sem esta consulta, ela apareceria
+            // limpa e só ganharia as reações na próxima abertura da conversa.
+            var reacoes = await ReactionPresenter.DeMensagensAsync(
+                db, [.. mensagens.Select(m => m.Id)], ct);
+
             return Results.Ok(new SyncResponse(
                 await presenter.ApresentarAsync(conversas, ct),
                 [.. mensagens.Select(m => new MessageResponse(
@@ -100,7 +107,8 @@ internal static class SyncEndpoints
                     m.Body, m.ClientMessageId, m.ReplyToMessageId,
                     m.SentAt, m.EditedAt, m.IsDeleted,
                     m.Kind.ToString(), m.SystemEvent?.ToString(), m.SystemTargetId,
-                    m.SystemTargetId is { } alvo ? nomes.GetValueOrDefault(alvo) : null))],
+                    m.SystemTargetId is { } alvo ? nomes.GetValueOrDefault(alvo) : null,
+                    Reactions: m.IsDeleted ? null : reacoes.GetValueOrDefault(m.Id)))],
                 truncadas));
         });
 

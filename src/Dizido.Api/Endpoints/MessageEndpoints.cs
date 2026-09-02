@@ -1,9 +1,11 @@
 using Dizido.Api.Attachments;
 using Dizido.Api.Auth;
 using Dizido.Api.Observabilidade;
+using Dizido.Api.Reactions;
 using Dizido.Api.Realtime;
 using Dizido.Contracts.Attachments;
 using Dizido.Contracts.Messages;
+using Dizido.Contracts.Reactions;
 using Dizido.Contracts.Realtime;
 using Dizido.Domain.Entities;
 using Dizido.Domain.Enums;
@@ -240,9 +242,11 @@ internal static class MessageEndpoints
 
             var anexos = await AnexosAsync(db, presenter, messages, ct);
             var citacoes = await CitacoesAsync(db, messages, ct);
+            var reacoes = await ReactionPresenter.DeMensagensAsync(db, [.. messages.Select(m => m.Id)], ct);
 
             var items = messages
-                .Select(m => ToResponse(m, names.GetValueOrDefault(m.SenderId, "(desconhecido)"), anexos, citacoes))
+                .Select(m => ToResponse(
+                    m, names.GetValueOrDefault(m.SenderId, "(desconhecido)"), anexos, citacoes, reacoes))
                 .ToList();
 
             return Results.Ok(new MessagePage(items, hasMore ? messages[^1].Id : null));
@@ -325,7 +329,13 @@ internal static class MessageEndpoints
         var anexos = await AnexosAsync(db, presenter, [message], ct);
         var citacoes = await CitacoesAsync(db, [message], ct);
 
-        return ToResponse(message, name ?? "(desconhecido)", anexos, citacoes);
+        // As reações entram aqui também, e isto NÃO é zelo excessivo. Este método monta a
+        // resposta da edição, e a edição reaproveita o MessageReceived: sem esta linha, editar
+        // uma mensagem substituiria o balão por uma versão sem reações na tela de todo mundo,
+        // e elas só voltariam quando alguém recarregasse a conversa.
+        var reacoes = await ReactionPresenter.DeMensagensAsync(db, [message.Id], ct);
+
+        return ToResponse(message, name ?? "(desconhecido)", anexos, citacoes, reacoes);
     }
 
     /// <summary>
@@ -431,6 +441,7 @@ internal static class MessageEndpoints
         string senderDisplayName,
         Dictionary<Guid, AttachmentResponse> anexos,
         Dictionary<Guid, MessageReplyPreview> citacoes,
+        Dictionary<Guid, List<ReactionSummary>> reacoes,
         string? targetName = null) =>
         new(m.Id, m.ConversationId, m.SenderId, senderDisplayName, m.Body, m.ClientMessageId,
             m.ReplyToMessageId, m.SentAt, m.EditedAt, m.IsDeleted,
@@ -444,5 +455,10 @@ internal static class MessageEndpoints
 
             // Menções não sobrevivem ao apagamento: o corpo sumiu, e destacar um nome numa
             // mensagem que não existe mais só confundiria.
-            m.IsDeleted ? null : m.Mentions);
+            m.IsDeleted ? null : m.Mentions,
+
+            // Reações também não. As linhas continuam no banco (só a mensagem é apagada, de
+            // forma suave), mas um balão que diz "esta mensagem foi apagada" com cinco
+            // polegares embaixo é uma cena sem sentido.
+            m.IsDeleted ? null : reacoes.GetValueOrDefault(m.Id));
 }

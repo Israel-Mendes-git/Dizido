@@ -3,6 +3,7 @@ using Dizido.Contracts.Auth;
 using Dizido.Contracts.Conversations;
 using Dizido.Contracts.Decisions;
 using Dizido.Contracts.Messages;
+using Dizido.Contracts.Reactions;
 using Dizido.Contracts.Sync;
 using Dizido.Contracts.Users;
 using System.Net;
@@ -199,6 +200,46 @@ public sealed class DizidoApiClient(HttpClient http, DizidoSession session)
         Guid conversationId, Guid messageId, CancellationToken ct = default) =>
         ExecutarAsync(() => http.DeleteAsync(
             $"api/conversations/{conversationId}/messages/{messageId}", ct), ct);
+
+    // ----- reações -----
+
+    /// <summary>
+    /// Põe uma reação numa mensagem.
+    /// </summary>
+    /// <remarks>
+    /// Pôr e tirar são chamadas diferentes, e não um "alternar". Assim repetir o pedido chega
+    /// sempre no mesmo estado — o que importa aqui porque o cliente reenvia quando a resposta
+    /// se perde, e um alternar reenviado desfaria o que a primeira tentativa fez.
+    /// </remarks>
+    /// <returns>As reações da mensagem depois da mudança, ou o erro.</returns>
+    public async Task<(IReadOnlyList<ReactionSummary>? Reacoes, string? Erro)> ReactAsync(
+        Guid conversationId, Guid messageId, string emoji, CancellationToken ct = default)
+    {
+        var res = await http.PostAsJsonAsync(
+            $"api/conversations/{conversationId}/messages/{messageId}/reactions",
+            new ReactRequest(emoji),
+            ct);
+
+        return res.IsSuccessStatusCode
+            ? (await res.Content.ReadFromJsonAsync<List<ReactionSummary>>(ct), null)
+            : (null, await LerProblemaAsync(res, ct));
+    }
+
+    /// <summary>Tira a própria reação de uma mensagem.</summary>
+    public async Task<(IReadOnlyList<ReactionSummary>? Reacoes, string? Erro)> UnreactAsync(
+        Guid conversationId, Guid messageId, string emoji, CancellationToken ct = default)
+    {
+        // EscapeDataString não é opcional: o emoji vai na query, e os bytes de "👍" fora de
+        // codificação viram uma URL que o servidor lê errado — quando lê.
+        var url = $"api/conversations/{conversationId}/messages/{messageId}/reactions"
+                  + $"?emoji={Uri.EscapeDataString(emoji)}";
+
+        using var res = await http.DeleteAsync(new Uri(url, UriKind.Relative), ct);
+
+        return res.IsSuccessStatusCode
+            ? (await res.Content.ReadFromJsonAsync<List<ReactionSummary>>(ct), null)
+            : (null, await LerProblemaAsync(res, ct));
+    }
 
     // ----- decisões -----
 

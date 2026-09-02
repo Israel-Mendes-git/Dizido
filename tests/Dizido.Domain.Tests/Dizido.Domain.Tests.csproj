@@ -17,6 +17,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Dizido.Domain\Dizido.Domain.csproj" />
+
+    <!-- Contracts entra aqui só por causa da paleta de reações: ela vive nos contratos (a
+         interface precisa dela para desenhar o seletor) e o domínio valida a forma do emoji.
+         O teste que garante que as duas concordam precisa enxergar as duas. Isto NÃO afrouxa
+         a regra de o Dizido.Domain não depender de nada — quem passa a depender é o projeto
+         de teste, não o domínio. -->
+    <ProjectReference Include="..\..\src\Dizido.Contracts\Dizido.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

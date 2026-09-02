@@ -25,6 +25,10 @@ public sealed class ChatConnection(DizidoSession session, Uri baseAddress) : IAs
     /// Um corpo vazio chegando seria indistinguível de uma foto sem legenda.
     /// </remarks>
     public event Action<MessageDeletedEvent>? MessageDeleted;
+
+    /// <summary>Alguém pôs ou tirou uma reação numa mensagem.</summary>
+    public event Action<MessageReactionEvent>? ReactionChanged;
+
     public event Action<TypingEvent>? TypingChanged;
     public event Action<PresenceEvent>? PresenceChanged;
     public event Action<ReadReceiptEvent>? ReadReceiptUpdated;
@@ -64,6 +68,7 @@ public sealed class ChatConnection(DizidoSession session, Uri baseAddress) : IAs
 
         _hub.On<MessageResponse>(nameof(IChatClient.MessageReceived), m => MessageReceived?.Invoke(m));
         _hub.On<MessageDeletedEvent>(nameof(IChatClient.MessageDeleted), e => MessageDeleted?.Invoke(e));
+        _hub.On<MessageReactionEvent>(nameof(IChatClient.ReactionChanged), e => ReactionChanged?.Invoke(e));
         _hub.On<TypingEvent>(nameof(IChatClient.TypingChanged), e => TypingChanged?.Invoke(e));
         _hub.On<PresenceEvent>(nameof(IChatClient.PresenceChanged), e => PresenceChanged?.Invoke(e));
         _hub.On<ReadReceiptEvent>(nameof(IChatClient.ReadReceiptUpdated), e => ReadReceiptUpdated?.Invoke(e));

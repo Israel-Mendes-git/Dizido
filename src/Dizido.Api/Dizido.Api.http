@@ -226,3 +226,67 @@ Content-Type: application/json
   "email": "israel@rapaduraatomica.com.br",
   "password": "tentativa-de-adivinhar"
 }
+
+### ---------- Reações ----------
+
+### Mensagem para reagir
+# @name mensagemParaReagir
+POST {{host}}/api/conversations/{{conversa}}/messages
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "clientMessageId": "44444444-4444-4444-8444-444444444444",
+  "body": "sexta às 18h, fechado?"
+}
+
+@mensagem = {{mensagemParaReagir.response.body.id}}
+
+### Reage — devolve as reações da mensagem, com quem reagiu
+POST {{host}}/api/conversations/{{conversa}}/messages/{{mensagem}}/reactions
+Content-Type: application/json
+Authorization: Bearer {{tokenRapadura}}
+
+{
+  "emoji": "👍"
+}
+
+### IDEMPOTÊNCIA — dispare o bloco acima duas vezes.
+# A segunda devolve exatamente a mesma coisa: um grupo, com um id dentro. É por isso
+# que pôr e tirar são rotas separadas, e não um "alternar" — uma retentativa depois de
+# a resposta se perder na rede não pode desfazer o que a primeira fez.
+
+### O outro lado reage com o mesmo emoji — os dois entram no MESMO grupo
+POST {{host}}/api/conversations/{{conversa}}/messages/{{mensagem}}/reactions
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "emoji": "👍"
+}
+
+### Tira a própria reação (o emoji vai na query, codificado)
+DELETE {{host}}/api/conversations/{{conversa}}/messages/{{mensagem}}/reactions?emoji=%F0%9F%91%8D
+Authorization: Bearer {{tokenIsrael}}
+
+### Fora da paleta -> 400
+POST {{host}}/api/conversations/{{conversa}}/messages/{{mensagem}}/reactions
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "emoji": "🍕"
+}
+
+### Texto no lugar do emoji -> 400 (a coluna não é campo livre)
+POST {{host}}/api/conversations/{{conversa}}/messages/{{mensagem}}/reactions
+Content-Type: application/json
+Authorization: Bearer {{tokenIsrael}}
+
+{
+  "emoji": "concordo com tudo"
+}
+
+### O histórico já traz as reações de cada mensagem
+GET {{host}}/api/conversations/{{conversa}}/messages
+Authorization: Bearer {{tokenIsrael}}

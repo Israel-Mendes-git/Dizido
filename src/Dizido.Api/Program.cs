@@ -149,6 +149,27 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
         }));
 
+    // ----- reação: por USUÁRIO, com bucket próprio -----
+    //
+    // Reagir grava três colunas e some do banco em um instante — o custo não é a escrita, é a
+    // AMPLIFICAÇÃO. Cada clique vira um evento de tempo real entregue a todas as conexões do
+    // grupo, então alguém alternando o mesmo polegar num laço gera um multiplicador do tamanho
+    // do grupo em tráfego de saída. É esse o abuso que este limite corta.
+    //
+    // Bucket separado do de mensagens, e não compartilhado: reagir a dez mensagens seguidas ao
+    // voltar de um almoço é uso legítimo, e se as duas coisas dividissem a mesma cota isso
+    // gastaria o direito de escrever — exatamente na hora em que a pessoa quer responder.
+    options.AddPolicy(LimitesDeUso.Reacoes, http => RateLimitPartition.GetTokenBucketLimiter(
+        partitionKey: LimitesDeUso.ParticaoDe(http),
+        factory: _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 20,
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(2),
+            AutoReplenishment = true,
+            QueueLimit = 0,
+        }));
+
     // ----- upload: por USUÁRIO, e bem mais apertado -----
     //
     // Cada pedido autoriza até 50 MB e reserva uma linha no banco. Sem limite, um laço de
@@ -323,6 +344,7 @@ app.MapGroupEndpoints().RequireAuthorization();
 app.MapAttachmentEndpoints().RequireAuthorization();
 app.MapSearchEndpoints().RequireAuthorization();
 app.MapDecisionEndpoints().RequireAuthorization();
+app.MapReactionEndpoints().RequireAuthorization();
 
 // O hub fica em /hubs/chat — o mesmo prefixo que o JwtBearerEvents aceita token por
 // query string, porque WebSocket nao permite cabecalho Authorization no handshake.

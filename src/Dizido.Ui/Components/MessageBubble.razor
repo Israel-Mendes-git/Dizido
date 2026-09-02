@@ -75,6 +75,21 @@
             }
         }
 
+        @if (!Mensagem.Dados.IsDeleted)
+        {
+            <ReactionBar Reacoes="@(Mensagem.Dados.Reactions ?? [])"
+                         MeuId="MeuId"
+                         Membros="Membros"
+                         Escolhendo="_escolhendoReacao"
+                         AoAlternar="@(PodeReagir ? Reagir : null)"
+                         AoEscolher="() => _escolhendoReacao = false" />
+        }
+
+        @if (_erroReacao is not null)
+        {
+            <p class="dz-bubble__erro" role="alert">@_erroReacao</p>
+        }
+
         <div class="dz-bubble__rodape">
             @if (Mensagem.Dados.EditedAt is not null && !Mensagem.Dados.IsDeleted)
             {
@@ -130,9 +145,21 @@
         @* As ações ficam escondidas até o ponteiro passar pelo balão (regra de CSS), mas
            continuam no DOM e alcançáveis por teclado — o contrário excluiria quem não usa
            mouse de editar as próprias mensagens. *@
-        @if (PodeResponder || PodeEditar || PodeApagar || PodeRegistrarDecisao)
+        @if (PodeResponder || PodeEditar || PodeApagar || PodeRegistrarDecisao || PodeReagir)
         {
             <div class="dz-bubble__acoes">
+                @if (PodeReagir)
+                {
+                    @* O seletor abre daqui, e não de um "+" fixo embaixo de cada balão: um
+                       botão permanente em toda mensagem polui a leitura de uma conversa
+                       inteira para servir a um clique ocasional. *@
+                    <button type="button"
+                            class="dz-bubble__acao @(_escolhendoReacao ? "dz-bubble__acao--principal" : null)"
+                            title="Reagir" aria-label="Reagir a esta mensagem"
+                            aria-expanded="@_escolhendoReacao"
+                            @onclick="AlternarSeletor">reagir</button>
+                }
+
                 @if (PodeResponder)
                 {
                     <button type="button" class="dz-bubble__acao"
@@ -171,6 +198,8 @@
     private bool _salvando;
     private bool _registrandoDecisao;
     private bool _salvandoDecisao;
+    private bool _escolhendoReacao;
+    private string? _erroReacao;
     private string _resumoDaDecisao = string.Empty;
     private string _rascunho = string.Empty;
     private string? _erro;
@@ -266,6 +295,37 @@
     private Task Reenviar() => AoReenviar.InvokeAsync(Mensagem);
 
     private Task Responder() => AoResponder.InvokeAsync(Mensagem);
+
+    /// <summary>Põe ou tira a reação. Devolve a mensagem de erro, ou <c>null</c>.</summary>
+    [Parameter] public Func<MensagemNaTela, string, Task<string?>>? AoReagir { get; set; }
+
+    /// <summary>
+    /// Reagir vale para mensagem de qualquer pessoa, inclusive a própria.
+    /// </summary>
+    /// <remarks>
+    /// Não se reage a uma mensagem ainda na fila: ela não tem id no servidor, e a reação não
+    /// teria onde ser gravada. Nem a uma apagada — o servidor recusa, e é o mesmo motivo pelo
+    /// qual o balão já não mostra conteúdo.
+    /// </remarks>
+    private bool PodeReagir =>
+        AoReagir is not null
+        && !Mensagem.Dados.IsDeleted
+        && !Mensagem.EhProvisoria
+        && Mensagem.Dados.Kind != "System"
+        && !_editando;
+
+    private void AlternarSeletor()
+    {
+        _escolhendoReacao = !_escolhendoReacao;
+        _erroReacao = null;
+    }
+
+    private async Task<string?> Reagir(string emoji)
+    {
+        _erroReacao = await AoReagir!(Mensagem, emoji);
+
+        return _erroReacao;
+    }
 
     /// <summary>
     /// Registra a mensagem como decisão. Devolve a mensagem de erro, ou <c>null</c>.

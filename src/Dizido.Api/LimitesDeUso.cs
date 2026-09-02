@@ -18,6 +18,8 @@ internal static class LimitesDeUso
 
     public const string Uploads = "uploads";
 
+    public const string Reacoes = "reacoes";
+
     /// <summary>
     /// A chave que separa um usuário do outro na contagem.
     /// </summary>
